@@ -1,0 +1,40 @@
+:root {
+  // Orange and cream brand palette.
+  --color-bg: #faf4e9;
+  --color-surface: #fffcf5;
+  --color-primary: #56301f;
+  --color-primary-dark: #382014;
+  --color-primary-light: color-mix(in srgb, var(--color-secondary) 22%, var(--color-surface));
+  --color-secondary: #d6b79d;
+  --color-accent: #a84316;
+  --color-accent-light: #f5e3d3;
+  --color-contrast: #fffcf5;
+
+  // Status colors retain their meaning regardless of the brand palette.
+  --color-danger: #b4232c;
+  --color-danger-light: #fff2ef;
+  --color-success: #26734d;
+  --color-success-light: #e9f3eb;
+  --color-warning: #8a5b00;
+  --color-warning-light: #f8ead9;
+  --color-info: #2c6491;
+  --color-info-light: #eaf0f4;
+
+  --color-border: color-mix(in srgb, var(--color-secondary) 65%, var(--color-surface));
+  --color-text: #3d2b20;
+  --color-text-muted: #6a584b;
+
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+
+  --font-family-base: Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-size-base: 14px;
+  --radius-sm: 7px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --shadow-sm: 0 1px 2px rgb(56 32 20 / 6%);
+  --shadow-md: 0 4px 12px rgb(56 32 20 / 8%);
+}

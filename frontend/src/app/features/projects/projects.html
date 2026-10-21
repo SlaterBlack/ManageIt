@@ -1,0 +1,441 @@
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="team-label">SHARED TEAM</div>
+    <div class="team-context">
+      <span class="team-mark">T</span>
+      <span>Projects visible to everyone</span>
+    </div>
+    <nav class="main-nav" aria-label="Project navigation">
+      <button
+        class="nav-item"
+        type="button"
+        [class.active]="activeNavigation() === 'overview'"
+        [attr.aria-current]="activeNavigation() === 'overview' ? 'page' : null"
+        (click)="navigate('overview')"
+      >
+        <span class="nav-icon">⌂</span><span class="nav-label">Overview</span>
+      </button>
+      <button
+        class="nav-item"
+        type="button"
+        [class.active]="activeNavigation() === 'projects'"
+        [attr.aria-current]="activeNavigation() === 'projects' ? 'page' : null"
+        (click)="navigate('projects')"
+      >
+        <span class="nav-icon">▦</span><span class="nav-label">Projects</span>
+      </button>
+      <button
+        class="nav-item"
+        type="button"
+        [class.active]="activeNavigation() === 'calendar'"
+        [attr.aria-current]="activeNavigation() === 'calendar' ? 'page' : null"
+        (click)="navigate('calendar')"
+      >
+        <span class="nav-icon">◷</span><span class="nav-label">Calendar</span>
+      </button>
+    </nav>
+
+    <div class="section-heading">
+      <span>PROJECTS</span>
+      <button
+        class="icon-button"
+        type="button"
+        aria-label="Add project"
+        [attr.aria-expanded]="showProjectForm()"
+        (click)="toggleProjectForm()"
+      >＋</button>
+    </div>
+    <form
+      class="project-form"
+      *ngIf="showProjectForm()"
+      (ngSubmit)="createProject()"
+    >
+      <label class="visually-hidden" for="project-name">Project name</label>
+      <input
+        id="project-name"
+        name="projectName"
+        [(ngModel)]="projectName"
+        placeholder="Project name"
+        maxlength="120"
+        required
+      >
+      <button class="small-primary btn btn-primary" type="submit">Add</button>
+    </form>
+    <div class="project-list">
+      <button
+        class="project-link"
+        type="button"
+        *ngFor="let project of projects()"
+        [class.selected]="project.id === selectedProjectId()"
+        [attr.aria-current]="project.id === selectedProjectId() ? 'true' : null"
+        (click)="selectProject(project)"
+      >
+        <span
+          class="project-dot"
+          [style.background]="projectColor(project.name)"
+        ></span>
+        <span>{{ project.name }}</span>
+      </button>
+      <p *ngIf="!projects().length && !loadingProjects()" class="sidebar-empty">
+        No projects yet
+      </p>
+    </div>
+    <div class="sidebar-bottom">
+      <div class="team-access-note">
+        One shared team · everyone can access every project
+      </div>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <header class="topbar">
+      <div class="breadcrumbs">
+        <span>Projects</span><span class="crumb-divider">/</span>
+        <strong>{{ selectedProject()?.name || 'Project plan' }}</strong>
+      </div>
+      <form
+        class="search-form"
+        *ngIf="searchOpen()"
+        (ngSubmit)="$event.preventDefault()"
+      >
+        <label class="visually-hidden" for="task-search">Search tasks</label>
+        <input
+          id="task-search"
+          name="searchTerm"
+          [ngModel]="searchTerm()"
+          (ngModelChange)="searchTerm.set($event)"
+          placeholder="Search tasks"
+          autocomplete="off"
+        >
+        <button
+          class="top-icon"
+          type="button"
+          aria-label="Close search"
+          (click)="closeSearch()"
+        >×</button>
+      </form>
+      <div class="top-actions">
+        <button
+          class="top-icon"
+          type="button"
+          aria-label="Search tasks"
+          (click)="toggleSearch()"
+        >⌕</button>
+        <button
+          class="top-icon notification"
+          type="button"
+          aria-label="Upcoming tasks"
+          [attr.aria-expanded]="notificationsOpen()"
+          (click)="toggleNotifications()"
+        >
+          ♧<span class="notification-count" *ngIf="upcomingTasks().length">
+            {{ upcomingTasks().length }}
+          </span>
+        </button>
+      </div>
+      <section
+        class="notification-panel"
+        *ngIf="notificationsOpen()"
+        aria-label="Upcoming tasks"
+      >
+        <div class="panel-heading">
+          <strong>Upcoming tasks</strong>
+          <button
+            class="panel-close"
+            type="button"
+            aria-label="Close notifications"
+            (click)="notificationsOpen.set(false)"
+          >×</button>
+        </div>
+        <p *ngIf="!upcomingTasks().length" class="panel-empty">
+          No overdue or upcoming tasks in this project.
+        </p>
+        <button
+          class="notification-task"
+          *ngFor="let task of upcomingTasks()"
+          type="button"
+          (click)="focusTask(task)"
+        >
+          <span>{{ task.name }}</span>
+          <small>Due {{ task.dueDate | date:'MMM d' }}</small>
+        </button>
+      </section>
+    </header>
+
+    <section class="page-content">
+      <div class="page-title-row">
+        <div>
+          <div class="eyebrow">Project plan</div>
+          <h1>{{ selectedProject()?.name || 'Your projects' }}</h1>
+          <p class="subtitle">
+            {{ selectedProject()?.description || 'Create a project to start planning your work.' }}
+          </p>
+        </div>
+        <div class="title-actions" *ngIf="selectedProject()">
+          <button
+            class="outline-button btn btn-secondary"
+            type="button"
+            (click)="loadTasks()"
+          >↻ <span>Refresh</span></button>
+          <button
+            class="primary-button btn btn-primary"
+            type="button"
+            (click)="toggleTaskForm()"
+          >＋ <span>Add task</span></button>
+        </div>
+      </div>
+
+      <div class="error-banner" *ngIf="errorMessage()" role="alert">
+        {{ errorMessage() }}
+        <button
+          type="button"
+          (click)="errorMessage.set('')"
+          aria-label="Dismiss"
+        >×</button>
+      </div>
+
+      <form
+        class="task-form card"
+        *ngIf="showTaskForm()"
+        (ngSubmit)="createTask()"
+      >
+        <label class="task-field task-name-field">
+          Task name
+          <input
+            name="taskName"
+            [(ngModel)]="taskName"
+            placeholder="Add a clear task name"
+            maxlength="120"
+            required
+          >
+        </label>
+        <label class="task-field">
+          Assignee
+          <input
+            name="assignee"
+            [(ngModel)]="taskAssignee"
+            placeholder="Name"
+            maxlength="120"
+          >
+        </label>
+        <label class="task-field">
+          Start date
+          <input type="date" name="startDate" [(ngModel)]="taskStartDate" required>
+        </label>
+        <label class="task-field">
+          Due date
+          <input type="date" name="dueDate" [(ngModel)]="taskDueDate" required>
+        </label>
+        <button class="primary-button btn btn-primary" type="submit">
+          Create task
+        </button>
+      </form>
+
+      <div class="stats-row" *ngIf="selectedProject()">
+        <div class="stat-card card">
+          <span class="stat-icon brand">▦</span>
+          <div><span class="stat-label">Total tasks</span><strong>{{ tasks().length }}</strong></div>
+        </div>
+        <div class="stat-card card">
+          <span class="stat-icon green">✓</span>
+          <div><span class="stat-label">Completed</span><strong>{{ completedCount() }}<small> / {{ tasks().length }}</small></strong></div>
+        </div>
+        <div class="stat-card card">
+          <span class="stat-icon blue">◷</span>
+          <div><span class="stat-label">In progress</span><strong>{{ inProgressCount() }}</strong></div>
+        </div>
+        <div class="stat-card card progress-stat">
+          <span class="stat-icon orange">↗</span>
+          <div><span class="stat-label">Overall progress</span><strong>{{ overallProgress() }}<small>%</small></strong></div>
+          <div class="stat-progress"><span [style.width.%]="overallProgress()"></span></div>
+        </div>
+      </div>
+
+      <div class="timeline-card card" *ngIf="selectedProject()">
+        <div class="timeline-toolbar">
+          <div class="view-tabs" role="group" aria-label="Task view">
+            <button
+              class="view-tab"
+              type="button"
+              [class.active]="viewMode() === 'timeline'"
+              [attr.aria-pressed]="viewMode() === 'timeline'"
+              (click)="setViewMode('timeline')"
+            >Timeline</button>
+            <button
+              class="view-tab"
+              type="button"
+              [class.active]="viewMode() === 'list'"
+              [attr.aria-pressed]="viewMode() === 'list'"
+              (click)="setViewMode('list')"
+            >List</button>
+          </div>
+          <div class="timeline-controls">
+            <button
+              class="outline-button today-button"
+              type="button"
+              (click)="scrollToToday()"
+            >Today</button>
+            <button
+              class="zoom-button"
+              type="button"
+              aria-label="Zoom out"
+              (click)="changeZoom(-4)"
+            >−</button>
+            <span class="zoom-label">{{ zoomLabel() }}</span>
+            <button
+              class="zoom-button"
+              type="button"
+              aria-label="Zoom in"
+              (click)="changeZoom(4)"
+            >＋</button>
+            <div class="more-actions">
+              <button
+                class="top-icon menu-button"
+                type="button"
+                aria-label="More options"
+                [attr.aria-expanded]="moreActionsOpen()"
+                (click)="toggleMoreActions()"
+              >···</button>
+              <div class="actions-menu" *ngIf="moreActionsOpen()">
+                <button type="button" (click)="exportTasksCsv()">
+                  Export tasks as CSV
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="timeline-scroll" *ngIf="viewMode() === 'timeline'">
+          <div class="timeline-grid">
+            <div class="task-column">
+              <div class="column-header">Task name <span>Assignee · due</span></div>
+              <div class="task-row" *ngFor="let task of visibleTasks(); trackBy: trackTask">
+                <span
+                  class="task-status"
+                  [class.done]="task.status === 'complete'"
+                  [class.active]="task.status === 'in_progress'"
+                  [attr.aria-label]="'Status: ' + task.status.replace('_', ' ')"
+                >{{ task.status === 'complete' ? '✓' : '' }}</span>
+                <span class="task-meta">
+                  <span class="task-name" [title]="task.name">{{ task.name }}</span>
+                  <span class="assignee">
+                    {{ task.assignee || 'Unassigned' }} · Due {{ task.dueDate | date:'MMM d' }}
+                  </span>
+                </span>
+              </div>
+              <div class="empty-tasks" *ngIf="!visibleTasks().length && !loadingTasks()">
+                {{ emptyTaskMessage() }}
+              </div>
+              <button
+                class="task-footer"
+                type="button"
+                (click)="openTaskForm()"
+              ><span>＋</span> Add a task</button>
+            </div>
+
+            <div
+              class="calendar-column"
+              [style.--day-count]="timelineDays().length"
+              [style.--day-width.px]="dayWidth()"
+            >
+              <div class="calendar-header">
+                <div class="month-row">
+                  <span
+                    *ngFor="let month of monthHeaders()"
+                    [style.width.%]="month.width"
+                  >{{ month.label }}</span>
+                </div>
+                <div class="day-row">
+                  <span
+                    *ngFor="let day of timelineDays()"
+                    [class.week-start]="day.isMonday"
+                    [class.today]="day.isToday"
+                  >{{ day.label }}</span>
+                </div>
+              </div>
+              <div
+                class="calendar-task-row"
+                *ngFor="let task of visibleTasks(); trackBy: trackTask"
+              >
+                <div
+                  class="day-cell"
+                  *ngFor="let day of timelineDays()"
+                  [class.week-start]="day.isMonday"
+                  [class.today]="day.isToday"
+                ></div>
+                <button
+                  class="task-bar"
+                  type="button"
+                  [id]="'task-' + task.id"
+                  [class.bar-complete]="task.status === 'complete'"
+                  [style.left]="taskOffset(task) + '%'"
+                  [style.width]="taskWidth(task) + '%'"
+                  [title]="task.name + ' — ' + task.progress + '% complete'"
+                  (click)="advanceTask(task)"
+                >
+                  <span class="bar-progress" [style.width.%]="task.progress"></span>
+                  <span class="bar-label">{{ task.name }}</span>
+                </button>
+              </div>
+              <div
+                class="calendar-empty"
+                *ngIf="!visibleTasks().length && !loadingTasks()"
+              ></div>
+              <div
+                class="today-line"
+                *ngIf="todayOffset() >= 0 && todayOffset() <= 100"
+                [style.left]="todayOffset() + '%'"
+              ></div>
+            </div>
+          </div>
+          <div class="loading-state" *ngIf="loadingTasks()">Loading tasks…</div>
+        </div>
+
+        <div class="list-view" *ngIf="viewMode() === 'list'">
+          <table>
+            <thead>
+              <tr><th>Task</th><th>Assignee</th><th>Dates</th><th>Status</th><th>Progress</th></tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let task of visibleTasks(); trackBy: trackTask">
+                <td>{{ task.name }}</td>
+                <td>{{ task.assignee || 'Unassigned' }}</td>
+                <td>{{ task.startDate | date:'MMM d' }} – {{ task.dueDate | date:'MMM d, y' }}</td>
+                <td><span class="status-label" [class.done]="task.status === 'complete'">{{ task.status.replace('_', ' ') }}</span></td>
+                <td>
+                  <button class="progress-button" type="button" (click)="advanceTask(task)">
+                    {{ task.progress }}% · Update
+                  </button>
+                </td>
+              </tr>
+              <tr *ngIf="!visibleTasks().length && !loadingTasks()">
+                <td colspan="5">{{ emptyTaskMessage() }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="loading-state" *ngIf="loadingTasks()">Loading tasks…</div>
+        </div>
+
+        <div class="timeline-legend">
+          <span><i class="legend-dot progress-dot"></i>In progress</span>
+          <span><i class="legend-dot complete-dot"></i>Completed</span>
+          <span><i class="legend-dot upcoming-dot"></i>Not started</span>
+          <span class="legend-hint">Tip: click a task bar to update progress</span>
+        </div>
+      </div>
+
+      <div class="empty-project" *ngIf="!selectedProject() && !loadingProjects()">
+        <div class="empty-icon">▦</div>
+        <h2>Plan your next big thing</h2>
+        <p>Create a project and map out the work on your timeline.</p>
+        <button
+          class="primary-button btn btn-primary"
+          type="button"
+          (click)="showProjectForm.set(true)"
+        >＋ Create a project</button>
+      </div>
+      <div class="loading-projects" *ngIf="loadingProjects()">Loading projects…</div>
+      <footer class="page-footer">ManageIt <span>·</span> Project planning, made simple.</footer>
+    </section>
+  </main>
+</div>
