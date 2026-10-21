@@ -56,7 +56,10 @@ Set `CLOCKEDIN_DB_USER` and `CLOCKEDIN_DB_PASSWORD` to this role in `backend/.en
 frontend/
   src/app/core/models/       Shared project and task types
   src/app/core/services/     HTTP API services
-  src/app/features/projects/ Project planning page
+  src/app/features/auth/     ClockedIn account sign-in
+  src/app/features/calendar/ Project task timeline and list
+  src/app/features/overview/ Team and project summary
+  src/app/features/projects/ Shared project list and creation
   src/app/layout/            App shell and navigation
   src/styles/                Orange-and-cream SCSS tokens and shared styles
 backend/
@@ -67,6 +70,8 @@ backend/
   src/routes/                REST API routes
   src/server.ts              Database startup and development schema sync
 ```
+
+The app shell provides separate `/overview`, `/projects`, and `/calendar` pages. Opening a project from the project list navigates to its calendar using the `project` query parameter.
 
 Generate frontend components and services through Angular CLI:
 

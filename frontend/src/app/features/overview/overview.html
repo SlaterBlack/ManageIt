@@ -1,0 +1,105 @@
+<main class="page-content">
+  <header class="page-title-row">
+    <div>
+      <div class="eyebrow">Team snapshot</div>
+      <h1>Overview</h1>
+      <p class="subtitle">A quick look at shared projects, progress, and upcoming work.</p>
+    </div>
+    <div class="title-actions">
+      <button class="btn btn-secondary" type="button" (click)="loadOverview()">Refresh</button>
+      <a class="btn btn-primary" routerLink="/projects">View projects</a>
+    </div>
+  </header>
+
+  <div class="error-banner" *ngIf="errorMessage()" role="alert">
+    <span>{{ errorMessage() }}</span>
+    <button type="button" (click)="errorMessage.set('')" aria-label="Dismiss error">×</button>
+  </div>
+
+  <div class="loading-state card" *ngIf="loading()">Loading your team overview…</div>
+
+  <ng-container *ngIf="!loading()">
+    <section class="stats-row" aria-label="Team summary">
+      <article class="stat-card card">
+        <span class="stat-icon">▦</span>
+        <div><span class="stat-label">PROJECTS</span><strong>{{ projectCount() }}</strong></div>
+      </article>
+      <article class="stat-card card">
+        <span class="stat-icon blue">☷</span>
+        <div><span class="stat-label">TOTAL TASKS</span><strong>{{ taskCount() }}</strong></div>
+      </article>
+      <article class="stat-card card">
+        <span class="stat-icon green">✓</span>
+        <div><span class="stat-label">COMPLETED</span><strong>{{ completedCount() }}</strong></div>
+      </article>
+      <article class="stat-card card progress-stat">
+        <span class="stat-icon orange">%</span>
+        <div><span class="stat-label">OVERALL PROGRESS</span><strong>{{ overallProgress() }}<small>%</small></strong></div>
+        <div class="stat-progress"><span [style.width.%]="overallProgress()"></span></div>
+      </article>
+    </section>
+
+    <div class="overview-grid" *ngIf="projectCount()">
+      <section class="overview-panel card" aria-labelledby="projects-heading">
+        <header class="panel-heading">
+          <div>
+            <h2 id="projects-heading">Projects at a glance</h2>
+            <p>{{ projectCount() }} shared {{ projectCount() === 1 ? 'project' : 'projects' }}</p>
+          </div>
+          <a routerLink="/projects">View all</a>
+        </header>
+        <div class="overview-project-list">
+          <a
+            class="overview-project"
+            *ngFor="let summary of summaries(); trackBy: trackProject"
+            [routerLink]="['/calendar']"
+            [queryParams]="{ project: summary.project.id }"
+          >
+            <span class="project-mark">{{ summary.project.name.charAt(0).toUpperCase() }}</span>
+            <span class="overview-project-info">
+              <strong>{{ summary.project.name }}</strong>
+              <small>{{ summary.tasks.length }} {{ summary.tasks.length === 1 ? 'task' : 'tasks' }} · {{ summary.completedCount }} completed</small>
+              <span class="project-progress"><span [style.width.%]="summary.progress"></span></span>
+            </span>
+            <strong class="project-progress-value">{{ summary.progress }}%</strong>
+          </a>
+        </div>
+      </section>
+
+      <section class="overview-panel card" aria-labelledby="upcoming-heading">
+        <header class="panel-heading">
+          <div>
+            <h2 id="upcoming-heading">Due in the next 7 days</h2>
+            <p>Upcoming work across all projects</p>
+          </div>
+          <a routerLink="/calendar">Calendar</a>
+        </header>
+        <div class="upcoming-list" *ngIf="upcomingTasks().length; else noUpcoming">
+          <a
+            class="upcoming-task"
+            *ngFor="let task of upcomingTasks(); trackBy: trackTask"
+            [routerLink]="['/calendar']"
+            [queryParams]="{ project: task.projectId }"
+          >
+            <span class="upcoming-indicator" [class.complete]="task.status === 'complete'"></span>
+            <span class="upcoming-task-info">
+              <strong>{{ task.name }}</strong>
+              <small>{{ task.projectName }} · {{ task.assignee || 'Unassigned' }}</small>
+            </span>
+            <time>{{ task.dueDate | date:'MMM d' }}</time>
+          </a>
+        </div>
+        <ng-template #noUpcoming>
+          <p class="empty-upcoming">No tasks are due in the next week.</p>
+        </ng-template>
+      </section>
+    </div>
+
+    <section class="empty-overview card" *ngIf="!projectCount()">
+      <div class="empty-icon">＋</div>
+      <h2>Start with a shared project</h2>
+      <p>Create a project to see team progress and upcoming tasks here.</p>
+      <a class="btn btn-primary" routerLink="/projects">Create a project</a>
+    </section>
+  </ng-container>
+</main>

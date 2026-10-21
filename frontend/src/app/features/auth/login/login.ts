@@ -30,7 +30,7 @@ export class Login {
     this.errorMessage.set('');
     this.auth.login(this.email.trim(), this.password).subscribe({
       next: () => {
-        void this.router.navigateByUrl('/projects');
+        void this.router.navigateByUrl('/overview');
       },
       error: (error: unknown) => {
         this.isSubmitting.set(false);
@@ -49,6 +49,6 @@ export class Login {
     ) {
       return error.error.error;
     }
-    return 'Could not sign in. Check that ClockedIn is running and try again.';
+    return 'Could not sign in. Check that the ManageIt API and account database are available.';
   }
 }

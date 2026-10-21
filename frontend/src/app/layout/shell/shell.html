@@ -1,25 +1,24 @@
 <header class="navbar">
   <a
     class="navbar-brand"
-    routerLink="/projects"
-    fragment="overview"
+    routerLink="/overview"
     aria-label="ManageIt home"
   >ManageIt</a>
   <nav class="navbar-links" aria-label="Main navigation">
     <a
-      href="/projects#overview"
-      [class.is-active]="activeTab() === 'overview'"
-      (click)="navigateTo($event, 'overview')"
+      routerLink="/overview"
+      routerLinkActive="is-active"
+      [routerLinkActiveOptions]="{ exact: true }"
     >Overview</a>
     <a
-      href="/projects#projects"
-      [class.is-active]="activeTab() === 'projects'"
-      (click)="navigateTo($event, 'projects')"
+      routerLink="/projects"
+      routerLinkActive="is-active"
+      [routerLinkActiveOptions]="{ exact: true }"
     >Projects</a>
     <a
-      href="/projects#calendar"
-      [class.is-active]="activeTab() === 'calendar'"
-      (click)="navigateTo($event, 'calendar')"
+      routerLink="/calendar"
+      routerLinkActive="is-active"
+      [routerLinkActiveOptions]="{ exact: true }"
     >Calendar</a>
   </nav>
   <div class="navbar-user">
