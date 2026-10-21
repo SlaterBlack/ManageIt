@@ -7,6 +7,10 @@
   min-height: calc(100vh - 72px);
 }
 
+.navbar-brand .brand-accent {
+  color: color-mix(in srgb, var(--color-accent) 80%, white);
+}
+
 .navbar-user {
   margin-left: auto;
 }
