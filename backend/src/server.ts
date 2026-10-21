@@ -6,11 +6,13 @@ import {
 } from './config/database';
 import { env } from './config/env';
 import './models';
+import { migrateProjectMetadata } from './models/projectMetadataMigration';
 import { seedDemoProjectIfEmpty } from './models/seed';
 
 async function bootstrap(): Promise<void> {
   await connectDatabases();
   if (env.nodeEnv === 'development') {
+    await migrateProjectMetadata();
     await sequelize.sync({ alter: true });
     await seedDemoProjectIfEmpty();
   }

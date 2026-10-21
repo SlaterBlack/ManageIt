@@ -32,6 +32,8 @@ ManageIt is a shared-team project planner with a Gantt-style timeline. It uses a
 
 Open `http://localhost:4201` and sign in with a ClockedIn account. The API listens on `http://localhost:4001`; the Angular development server proxies `/api` requests to it. On first development startup, Sequelize synchronizes the ManageIt model schema and adds a small demo project if the ManageIt database is empty.
 
+Projects have a unique three-digit code and a saved color. The Projects page supports preset and custom colors; development startup assigns codes to existing projects and gives them the default orange color.
+
 The local `backend/.env` contains machine-specific database credentials and must not be committed. ManageIt uses a separate `manageit` database for projects and tasks, and reads only the ClockedIn `users` table to verify bcrypt password hashes and retrieve the current user profile. It never stores or returns ClockedIn password hashes. ManageIt issues its own signed tokens, so the ClockedIn web/API service can be stopped; PostgreSQL and the ClockedIn database must remain available. For production, use a ClockedIn database role that has `CONNECT` access and `SELECT` permission on `public.users` only.
 
 For production, create a dedicated read-only PostgreSQL role for ClockedIn account lookups. Replace the example password and database name:
@@ -59,12 +61,13 @@ frontend/
   src/app/features/auth/     ClockedIn account sign-in
   src/app/features/calendar/ Project task timeline and list
   src/app/features/overview/ Team and project summary
-  src/app/features/projects/ Shared project list and creation
+  src/app/features/projects/ Shared projects, codes, and color picker
   src/app/layout/            App shell and navigation
   src/styles/                Orange-and-cream SCSS tokens and shared styles
 backend/
   src/config/                Environment and Sequelize configuration
   src/controllers/           Project and task request handlers
+  migrations/                Production PostgreSQL migrations
   src/middleware/            API errors and not-found handling
   src/models/                Sequelize project and task models
   src/routes/                REST API routes
@@ -90,6 +93,8 @@ npm run ng -- generate service core/services/example
 - `GET /api/projects/:projectId/tasks` / `POST /api/projects/:projectId/tasks`
 - `PATCH /api/tasks/:taskId` / `DELETE /api/tasks/:taskId`
 
+Project creation requires a unique three-digit `projectCode` and a `name`; `color` is an optional six-digit hex value that defaults to orange. Project updates accept `projectCode`, `name`, `description`, and `color`.
+
 Task creation requires a name and valid `startDate` / `dueDate` values (`YYYY-MM-DD`), with the due date on or after the start date. Validation failures return a JSON `error` message.
 
 ## Build
@@ -105,3 +110,5 @@ npm run build
 ```
 
 The backend uses `sequelize.sync({ alter: true })` only in development for this scaffold. Use explicit database migrations before production deployment.
+
+For an existing production ManageIt database, run [`backend/migrations/20261021_add_project_code_and_color.sql`](./backend/migrations/20261021_add_project_code_and_color.sql) once before deploying the project-code/color backend. It assigns unused three-digit codes and applies the default orange to existing projects. Do not run this one-time migration against a database that already has these columns.

@@ -44,6 +44,16 @@
   font-size: 13px;
 }
 
+.project-color-indicator {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border: 1px solid rgb(0 0 0 / 12%);
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+
 .title-actions {
   display: flex;
   flex: 0 0 auto;

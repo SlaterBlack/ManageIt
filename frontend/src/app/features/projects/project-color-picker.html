@@ -1,0 +1,46 @@
+<div class="project-color-control" [class.is-compact]="compact">
+  <button
+    class="project-color-trigger"
+    type="button"
+    [style.background-color]="compact ? color : null"
+    [attr.aria-label]="label"
+    [attr.aria-expanded]="isOpen()"
+    [disabled]="disabled"
+    (click)="togglePicker()"
+  >
+    <ng-container *ngIf="!compact">
+      <span class="project-color-preview" [style.background-color]="color"></span>
+      <span>{{ displayLabel }}</span>
+    </ng-container>
+  </button>
+
+  <div
+    class="color-popover"
+    *ngIf="isOpen()"
+    [attr.aria-label]="'Choose color for ' + displayLabel"
+  >
+    <span class="color-popover-title">Project color</span>
+    <div class="color-swatches">
+      <button
+        class="color-swatch"
+        *ngFor="let option of colorOptions"
+        type="button"
+        [style.background-color]="option.value"
+        [attr.aria-label]="option.name"
+        [attr.title]="option.name"
+        [attr.aria-pressed]="color.toUpperCase() === option.value"
+        (click)="selectColor(option.value)"
+      ></button>
+    </div>
+    <label class="custom-color-option">
+      <input
+        type="color"
+        [ngModel]="color"
+        (ngModelChange)="selectColor($event)"
+        [attr.aria-label]="'Choose custom color for ' + displayLabel"
+        [disabled]="disabled"
+      >
+      <span>Choose custom color</span>
+    </label>
+  </div>
+</div>

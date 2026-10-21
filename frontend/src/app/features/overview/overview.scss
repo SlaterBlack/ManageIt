@@ -246,11 +246,8 @@
   gap: 4px;
 
   strong {
-    overflow: hidden;
     color: var(--color-primary-dark);
     font-size: 12px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   small {
@@ -260,6 +257,33 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+}
+
+.upcoming-task-info strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.project-title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-color-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border: 1px solid rgb(0 0 0 / 12%);
+  border-radius: 50%;
 }
 
 .project-progress {

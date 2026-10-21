@@ -18,11 +18,29 @@
     <button type="button" (click)="errorMessage.set('')" aria-label="Dismiss error">×</button>
   </div>
 
-  <form class="project-create-form card" *ngIf="showProjectForm()" (ngSubmit)="createProject()">
+  <form
+    class="project-create-form card"
+    *ngIf="showProjectForm()"
+    (ngSubmit)="createProject()"
+  >
     <div>
       <h2>New project</h2>
       <p>Everyone on the team will be able to access this project.</p>
     </div>
+    <label class="project-code-field">
+      Project code
+      <input
+        type="text"
+        name="projectCode"
+        [(ngModel)]="projectCode"
+        inputmode="numeric"
+        maxlength="3"
+        pattern="[0-9]{3}"
+        placeholder="001"
+        aria-label="Three-digit project code"
+        required
+      >
+    </label>
     <label class="project-name-field">
       Project name
       <input
@@ -34,7 +52,13 @@
         required
       >
     </label>
-    <button class="btn btn-primary" type="submit" [disabled]="!projectName.trim() || isCreating()">
+    <app-project-color-picker
+      [color]="newProjectColor()"
+      label="Choose project color"
+      displayLabel="Project color"
+      (pickedColor)="newProjectColor.set($event)"
+    />
+    <button class="btn btn-primary" type="submit" [disabled]="!canCreateProject()">
       {{ isCreating() ? 'Creating…' : 'Create project' }}
     </button>
   </form>
@@ -61,16 +85,76 @@
   <section class="project-grid" *ngIf="!loading() && visibleProjects().length">
     <article class="project-card card" *ngFor="let project of visibleProjects(); trackBy: trackProject">
       <div class="project-card-heading">
-        <span class="project-mark" [style.background]="projectColor(project.name)">
-          {{ project.name.charAt(0).toUpperCase() }}
-        </span>
+        <div class="project-meta">
+          <app-project-color-picker
+            [color]="project.color"
+            [label]="'Change color for ' + project.name"
+            [displayLabel]="project.name"
+            [compact]="true"
+            [disabled]="isUpdatingColor(project.id)"
+            (pickedColor)="updateProjectColor(project.id, $event)"
+          />
+          <span class="project-code">{{ project.projectCode }}</span>
+        </div>
         <span class="shared-label">Shared</span>
       </div>
-      <h2>{{ project.name }}</h2>
-      <p class="project-description">{{ project.description || 'Shared team project' }}</p>
+      <form
+        class="project-details-form"
+        *ngIf="editingProjectId() === project.id"
+        (ngSubmit)="saveProjectDetails()"
+      >
+        <label>
+          Project code
+          <input
+            type="text"
+            name="editedProjectCode"
+            [(ngModel)]="editedProjectCode"
+            inputmode="numeric"
+            maxlength="3"
+            pattern="[0-9]{3}"
+            aria-label="Three-digit project code"
+            required
+          >
+        </label>
+        <label>
+          Project name
+          <input
+            type="text"
+            name="editedProjectName"
+            [(ngModel)]="editedProjectName"
+            maxlength="120"
+            required
+          >
+        </label>
+        <div class="project-details-actions">
+          <button
+            class="btn btn-secondary"
+            type="button"
+            (click)="cancelEditingProject()"
+            [disabled]="isSavingProject()"
+          >Cancel</button>
+          <button
+            class="btn btn-primary"
+            type="submit"
+            [disabled]="!canSaveProjectDetails()"
+          >{{ isSavingProject() ? 'Saving…' : 'Save changes' }}</button>
+        </div>
+      </form>
+      <ng-container *ngIf="editingProjectId() !== project.id">
+        <h2>{{ project.name }}</h2>
+        <p class="project-description">{{ project.description || 'Shared team project' }}</p>
+      </ng-container>
       <div class="project-card-footer">
         <span>Created {{ project.createdAt | date:'mediumDate' }}</span>
-        <button class="btn btn-secondary" type="button" (click)="openCalendar(project)">Open calendar</button>
+        <div class="project-card-actions">
+          <button
+            class="btn btn-secondary"
+            type="button"
+            *ngIf="editingProjectId() !== project.id"
+            (click)="startEditingProject(project)"
+          >Edit details</button>
+          <button class="btn btn-primary" type="button" (click)="openCalendar(project)">Open calendar</button>
+        </div>
       </div>
     </article>
   </section>
@@ -79,7 +163,7 @@
     <div class="empty-icon">＋</div>
     <h2>Create your first project</h2>
     <p>Projects keep your team's tasks and timelines organized in one shared space.</p>
-    <button class="btn btn-primary" type="button" (click)="showProjectForm.set(true)">Create a project</button>
+    <button class="btn btn-primary" type="button" (click)="openProjectForm()">Create a project</button>
   </section>
 
   <section class="empty-search card" *ngIf="!loading() && projects().length && !visibleProjects().length">

@@ -3,9 +3,11 @@
     <div>
       <div class="eyebrow">Schedule</div>
       <h1>Calendar</h1>
-      <p class="subtitle">
-        {{ selectedProject()?.name || 'Select a project to view its timeline.' }}
+      <p class="subtitle" *ngIf="selectedProject() as project">
+        <span class="project-color-indicator" [style.background-color]="project.color"></span>
+        {{ project.projectCode }} · {{ project.name }}
       </p>
+      <p class="subtitle" *ngIf="!selectedProject()">Select a project to view its timeline.</p>
     </div>
     <div class="title-actions">
       <label class="calendar-project-select" *ngIf="projects().length">
@@ -15,7 +17,9 @@
           [ngModel]="selectedProjectId()"
           (ngModelChange)="selectProjectById($event)"
         >
-          <option *ngFor="let project of projects()" [value]="project.id">{{ project.name }}</option>
+          <option *ngFor="let project of projects()" [value]="project.id">
+            {{ project.projectCode }} · {{ project.name }}
+          </option>
         </select>
       </label>
       <form class="search-form" *ngIf="searchOpen()" (ngSubmit)="$event.preventDefault()">

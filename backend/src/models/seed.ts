@@ -12,6 +12,7 @@ export async function seedDemoProjectIfEmpty(): Promise<void> {
   }
 
   const project = await Project.create({
+    projectCode: '001',
     name: 'Website Relaunch',
     description: 'A shared plan for the upcoming website launch.',
   });

@@ -57,9 +57,17 @@
           >
             <span class="project-mark">{{ summary.project.name.charAt(0).toUpperCase() }}</span>
             <span class="overview-project-info">
-              <strong>{{ summary.project.name }}</strong>
-              <small>{{ summary.tasks.length }} {{ summary.tasks.length === 1 ? 'task' : 'tasks' }} · {{ summary.completedCount }} completed</small>
-              <span class="project-progress"><span [style.width.%]="summary.progress"></span></span>
+              <strong class="project-title">
+                <span class="project-color-dot" [style.background-color]="summary.project.color"></span>
+                <span class="project-title-text">{{ summary.project.name }}</span>
+              </strong>
+              <small>{{ summary.project.projectCode }} · {{ summary.tasks.length }} {{ summary.tasks.length === 1 ? 'task' : 'tasks' }} · {{ summary.completedCount }} completed</small>
+              <span class="project-progress">
+                <span
+                  [style.width.%]="summary.progress"
+                  [style.background-color]="summary.project.color"
+                ></span>
+              </span>
             </span>
             <strong class="project-progress-value">{{ summary.progress }}%</strong>
           </a>

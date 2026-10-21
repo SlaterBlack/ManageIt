@@ -1,7 +1,15 @@
 import { Request, Response } from 'express';
 import { Project, Task } from '../models';
+import { DEFAULT_PROJECT_COLOR } from '../models/Project';
 import { ApiError } from '../utils/ApiError';
 import { asyncHandler } from '../utils/asyncHandler';
+
+function validateProjectCode(value: unknown): string {
+  if (typeof value !== 'string' || !/^\d{3}$/.test(value.trim())) {
+    throw new ApiError(400, 'Project code must be exactly three digits.');
+  }
+  return value.trim();
+}
 
 function validateName(value: unknown, label: string): string {
   if (typeof value !== 'string' || !value.trim()) {
@@ -12,6 +20,23 @@ function validateName(value: unknown, label: string): string {
     throw new ApiError(400, `${label} must be 120 characters or fewer.`);
   }
   return name;
+}
+
+function validateColor(value: unknown): string {
+  if (typeof value !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value)) {
+    throw new ApiError(400, 'Project color must be a six-digit hex value.');
+  }
+  return value.toUpperCase();
+}
+
+async function ensureProjectCodeAvailable(
+  projectCode: string,
+  exceptProjectId?: string,
+): Promise<void> {
+  const existingProject = await Project.findOne({ where: { projectCode } });
+  if (existingProject && existingProject.id !== exceptProjectId) {
+    throw new ApiError(409, 'Project code is already in use.');
+  }
 }
 
 export const listProjects = asyncHandler(async (_req: Request, res: Response) => {
@@ -26,10 +51,19 @@ export const listProjects = asyncHandler(async (_req: Request, res: Response) =>
 
 export const createProject = asyncHandler(
   async (req: Request, res: Response) => {
-    const { name, description = '' } = req.body as {
+    const {
+      projectCode,
+      name,
+      description = '',
+      color = DEFAULT_PROJECT_COLOR,
+    } = req.body as {
+      projectCode?: unknown;
       name?: unknown;
       description?: unknown;
+      color?: unknown;
     };
+    const code = validateProjectCode(projectCode);
+    await ensureProjectCodeAvailable(code);
     if (typeof description !== 'string') {
       throw new ApiError(400, 'Description must be a string.');
     }
@@ -37,8 +71,10 @@ export const createProject = asyncHandler(
       throw new ApiError(400, 'Description must be 2000 characters or fewer.');
     }
     const project = await Project.create({
+      projectCode: code,
       name: validateName(name, 'Project name'),
       description: description.trim(),
+      color: validateColor(color),
     });
     res.status(201).json({ project });
   },
@@ -54,11 +90,29 @@ export const updateProject = asyncHandler(
     const { name, description } = req.body as {
       name?: unknown;
       description?: unknown;
+      projectCode?: unknown;
+      color?: unknown;
     };
-    if (name === undefined && description === undefined) {
+    const changes = req.body as {
+      name?: unknown;
+      description?: unknown;
+      projectCode?: unknown;
+      color?: unknown;
+    };
+    if (
+      changes.name === undefined &&
+      changes.description === undefined &&
+      changes.projectCode === undefined &&
+      changes.color === undefined
+    ) {
       throw new ApiError(400, 'At least one project field must be provided.');
     }
-    const updates: { name?: string; description?: string } = {};
+    const updates: {
+      name?: string;
+      description?: string;
+      projectCode?: string;
+      color?: string;
+    } = {};
     if (name !== undefined) {
       updates.name = validateName(name, 'Project name');
     }
@@ -67,6 +121,14 @@ export const updateProject = asyncHandler(
         throw new ApiError(400, 'Description must be 2000 characters or fewer.');
       }
       updates.description = description.trim();
+    }
+    if (changes.projectCode !== undefined) {
+      const projectCode = validateProjectCode(changes.projectCode);
+      await ensureProjectCodeAvailable(projectCode, project.id);
+      updates.projectCode = projectCode;
+    }
+    if (changes.color !== undefined) {
+      updates.color = validateColor(changes.color);
     }
     await project.update(updates);
     res.json({ project });

@@ -3,6 +3,10 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
 import { Project } from '../models/project.model';
 
+type ProjectChanges = Partial<
+  Pick<Project, 'projectCode' | 'name' | 'description' | 'color'>
+>;
+
 @Injectable({
   providedIn: 'root',
 })
@@ -15,9 +19,19 @@ export class ProjectsService {
       .pipe(map(({ projects }) => projects));
   }
 
-  create(name: string): Observable<Project> {
+  create(projectCode: string, name: string, color: string): Observable<Project> {
     return this.http
-      .post<{ project: Project }>('/api/projects', { name })
+      .post<{ project: Project }>('/api/projects', {
+        projectCode,
+        name,
+        color,
+      })
+      .pipe(map(({ project }) => project));
+  }
+
+  update(id: string, changes: ProjectChanges): Observable<Project> {
+    return this.http
+      .patch<{ project: Project }>(`/api/projects/${id}`, changes)
       .pipe(map(({ project }) => project));
   }
 }

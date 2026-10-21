@@ -1,5 +1,5 @@
 import { ErrorRequestHandler, NextFunction, Request, Response } from 'express';
-import { ValidationError } from 'sequelize';
+import { UniqueConstraintError, ValidationError } from 'sequelize';
 import { ApiError } from '../utils/ApiError';
 
 export function notFoundHandler(
@@ -18,6 +18,11 @@ export const errorHandler: ErrorRequestHandler = (
 ): void => {
   if (error instanceof ApiError) {
     res.status(error.statusCode).json({ error: error.message });
+    return;
+  }
+
+  if (error instanceof UniqueConstraintError) {
+    res.status(409).json({ error: 'Project code is already in use.' });
     return;
   }
 
