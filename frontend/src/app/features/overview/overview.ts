@@ -73,25 +73,37 @@ export class Overview {
       .list()
       .pipe(
         switchMap((projects) =>
-          projects.length
+          projects.filter((project) => !project.isArchived).length
             ? forkJoin(
-                projects.map((project) =>
+                projects
+                  .filter((project) => !project.isArchived)
+                  .map((project) =>
                   this.tasksApi.list(project.id).pipe(
-                    map((tasks): ProjectSummary => ({
+                    map((tasks): ProjectSummary => {
+                      const activeTasks = tasks.filter(
+                        (task) =>
+                          !task.isArchived &&
+                          (!task.parentTaskId ||
+                            !tasks.find(
+                              (parent) => parent.id === task.parentTaskId,
+                            )?.isArchived),
+                      );
+                      return {
                       project,
-                      tasks,
-                      completedCount: tasks.filter(
+                      tasks: activeTasks,
+                      completedCount: activeTasks.filter(
                         (task) => task.status === 'complete',
                       ).length,
-                      progress: tasks.length
+                      progress: activeTasks.length
                         ? Math.round(
-                            tasks.reduce(
+                            activeTasks.reduce(
                               (total, task) => total + task.progress,
                               0,
-                            ) / tasks.length,
+                            ) / activeTasks.length,
                           )
                         : 0,
-                    })),
+                      };
+                    }),
                   ),
                 ),
               )

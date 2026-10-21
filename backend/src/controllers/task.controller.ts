@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
-import { Project, Task } from '../models';
+import { Op } from 'sequelize';
+import { sequelize } from '../config/database';
+import { Project, Task, TaskDependency } from '../models';
 import { TASK_STATUSES, TaskStatus } from '../models/Task';
 import { ApiError } from '../utils/ApiError';
 import { asyncHandler } from '../utils/asyncHandler';
@@ -127,13 +129,22 @@ export const updateTask = asyncHandler(async (req: Request, res: Response) => {
   if (!task) {
     throw new ApiError(404, 'Task not found.');
   }
-  const { name, assignee, startDate, dueDate, progress, status } = req.body as {
+  const {
+    name,
+    assignee,
+    startDate,
+    dueDate,
+    progress,
+    status,
+    isArchived,
+  } = req.body as {
     name?: unknown;
     assignee?: unknown;
     startDate?: unknown;
     dueDate?: unknown;
     progress?: unknown;
     status?: unknown;
+    isArchived?: unknown;
   };
   if (
     name === undefined &&
@@ -141,7 +152,8 @@ export const updateTask = asyncHandler(async (req: Request, res: Response) => {
     startDate === undefined &&
     dueDate === undefined &&
     progress === undefined &&
-    status === undefined
+    status === undefined &&
+    isArchived === undefined
   ) {
     throw new ApiError(400, 'Provide at least one task field to update.');
   }
@@ -153,6 +165,7 @@ export const updateTask = asyncHandler(async (req: Request, res: Response) => {
     dueDate?: string;
     progress?: number;
     status?: TaskStatus;
+    isArchived?: boolean;
   } = {};
   if (name !== undefined) {
     updates.name = validateTaskName(name);
@@ -174,6 +187,12 @@ export const updateTask = asyncHandler(async (req: Request, res: Response) => {
   }
   if (status !== undefined) {
     updates.status = validateStatus(status);
+  }
+  if (isArchived !== undefined) {
+    if (typeof isArchived !== 'boolean') {
+      throw new ApiError(400, 'Archived must be a boolean value.');
+    }
+    updates.isArchived = isArchived;
   }
   const resultingStart = updates.startDate ?? task.startDate;
   const resultingDue = updates.dueDate ?? task.dueDate;
@@ -220,6 +239,26 @@ export const deleteTask = asyncHandler(async (req: Request, res: Response) => {
   if (!task) {
     throw new ApiError(404, 'Task not found.');
   }
-  await task.destroy();
+  await sequelize.transaction(async (transaction) => {
+    const subtasks = await Task.findAll({
+      where: { parentTaskId: task.id },
+      attributes: ['id'],
+      transaction,
+    });
+    const taskIds = [task.id, ...subtasks.map((subtask) => subtask.id)];
+    await TaskDependency.destroy({
+      where: {
+        [Op.or]: [
+          { predecessorTaskId: { [Op.in]: taskIds } },
+          { successorTaskId: { [Op.in]: taskIds } },
+        ],
+      },
+      transaction,
+    });
+    await Task.destroy({
+      where: { id: { [Op.in]: taskIds } },
+      transaction,
+    });
+  });
   res.status(204).send();
 });

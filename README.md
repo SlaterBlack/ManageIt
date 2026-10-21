@@ -74,9 +74,9 @@ backend/
   src/server.ts              Database startup and development schema sync
 ```
 
-The app shell provides separate `/overview`, `/projects`, and `/calendar` pages. Opening a project from the project list navigates to its calendar using the `project` query parameter.
+The app shell provides separate `/overview`, `/projects`, and `/calendar` pages. Opening a project from the project list navigates to its calendar using the `project` query parameter. The Projects page separates active and archived projects; archived projects can be restored or permanently deleted from their **…** menu. Archiving a project hides it and its tasks from active views without changing task archive flags. Permanently deleting a project also deletes its tasks and dependencies.
 
-Tasks created from the Calendar form are top-level; use a task's **+** action to add a subtask, which starts with the parent's dates and can be edited from its **…** menu. Choose **+ Add milestone** to create a standalone single-date marker; milestones appear as diamonds and can participate in dependencies. Use **… → Edit task** to update task details. Drag task bars to move them on the timeline and drag either end to resize their dates; milestones move as a point and cannot be resized. Parent/subtask date limits are enforced. Drag the outer right dependency handle onto another task to make the dragged task its prerequisite; use the outer left handle to make the dropped task the prerequisite. Dependency cycles and links between different projects are rejected, and links can be removed from the dependency list below the timeline.
+Tasks created from the Calendar form are top-level; use a task's **+** action to add a subtask, which starts with the parent's dates and can be edited from its **…** menu. Choose **+ Add milestone** to create a standalone single-date marker; milestones appear as diamonds and can participate in dependencies. Use **… → Edit task** to update task details. Drag task bars to move them on the timeline and drag either end to resize their dates; milestones move as a point and cannot be resized. Parent/subtask date limits are enforced. Drag the outer right dependency handle onto another task to make the dragged task its prerequisite; use the outer left handle to make the dropped task the prerequisite. Dependency cycles and links between different projects are rejected, and links can be removed from the dependency list below the timeline. Calendar's **Active** and **Archived** views let the team archive and restore individual tasks; archived parents hide their subtasks in active views. Permanently deleting a task also deletes its subtasks and dependencies.
 
 Generate frontend components and services through Angular CLI:
 
@@ -97,9 +97,9 @@ npm run ng -- generate service core/services/example
 - `DELETE /api/projects/:projectId/dependencies/:dependencyId`
 - `PATCH /api/tasks/:taskId` / `DELETE /api/tasks/:taskId`
 
-Project creation requires a unique three-digit `projectCode` and a `name`; `color` is an optional six-digit hex value that defaults to orange. Project updates accept `projectCode`, `name`, `description`, and `color`.
+Project creation requires a unique three-digit `projectCode` and a `name`; `color` is an optional six-digit hex value that defaults to orange. Project updates accept `projectCode`, `name`, `description`, `color`, and the boolean `isArchived`.
 
-Task creation requires a name and valid `startDate` / `dueDate` values (`YYYY-MM-DD`), with the due date on or after the start date. Set `isMilestone: true` to create a standalone milestone with the same start and due date; milestones cannot be subtasks. An optional `parentTaskId` creates a subtask whose date range must be inside its parent's; nesting beyond one subtask level is not supported. Dependency creation accepts `predecessorTaskId` and `successorTaskId` for tasks and milestones in the project; cycles, duplicate links, and self-links are rejected. Validation failures return a JSON `error` message.
+Task creation requires a name and valid `startDate` / `dueDate` values (`YYYY-MM-DD`), with the due date on or after the start date. Set `isMilestone: true` to create a standalone milestone with the same start and due date; milestones cannot be subtasks. An optional `parentTaskId` creates a subtask whose date range must be inside its parent's; nesting beyond one subtask level is not supported. Task updates accept a boolean `isArchived`. Dependency creation accepts `predecessorTaskId` and `successorTaskId` for tasks and milestones in the project; cycles, duplicate links, and self-links are rejected. Validation failures return a JSON `error` message.
 
 ## Build
 
@@ -120,3 +120,5 @@ For an existing production ManageIt database, run [`backend/migrations/20261021_
 For the task dependency and subtask schema, run [`backend/migrations/20261021_add_task_dependencies_and_subtasks.sql`](./backend/migrations/20261021_add_task_dependencies_and_subtasks.sql) against an existing production ManageIt database before deploying the feature. The script expects PostgreSQL's `gen_random_uuid()` function to be available.
 
 For milestone support, run [`backend/migrations/20261021_add_task_milestones.sql`](./backend/migrations/20261021_add_task_milestones.sql) against an existing production ManageIt database before deploying the feature.
+
+For project and task archiving, run [`backend/migrations/20261021_add_archive_state.sql`](./backend/migrations/20261021_add_archive_state.sql) against an existing production ManageIt database before deploying the feature. Development startup applies the archive columns idempotently.

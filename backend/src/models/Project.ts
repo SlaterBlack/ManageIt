@@ -9,13 +9,14 @@ export interface ProjectAttributes {
   name: string;
   description: string;
   color: string;
+  isArchived: boolean;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
 export type ProjectCreationAttributes = Optional<
   ProjectAttributes,
-  'id' | 'description' | 'color' | 'createdAt' | 'updatedAt'
+  'id' | 'description' | 'color' | 'isArchived' | 'createdAt' | 'updatedAt'
 >;
 
 export class Project
@@ -27,6 +28,7 @@ export class Project
   public name!: string;
   public description!: string;
   public color!: string;
+  public isArchived!: boolean;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 }
@@ -56,6 +58,11 @@ Project.init(
       type: DataTypes.STRING(7),
       allowNull: false,
       defaultValue: DEFAULT_PROJECT_COLOR,
+    },
+    isArchived: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
   },
   {

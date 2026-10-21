@@ -4,7 +4,7 @@ import { Observable, map } from 'rxjs';
 import { Project } from '../models/project.model';
 
 type ProjectChanges = Partial<
-  Pick<Project, 'projectCode' | 'name' | 'description' | 'color'>
+  Pick<Project, 'projectCode' | 'name' | 'description' | 'color' | 'isArchived'>
 >;
 
 @Injectable({
@@ -33,5 +33,9 @@ export class ProjectsService {
     return this.http
       .patch<{ project: Project }>(`/api/projects/${id}`, changes)
       .pipe(map(({ project }) => project));
+  }
+
+  delete(id: string): Observable<void> {
+    return this.http.delete<void>(`/api/projects/${id}`);
   }
 }

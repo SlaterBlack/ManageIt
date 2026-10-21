@@ -32,6 +32,10 @@ export class TasksService {
       .pipe(map(({ task }) => task));
   }
 
+  delete(taskId: string): Observable<void> {
+    return this.http.delete<void>(`/api/tasks/${taskId}`);
+  }
+
   listDependencies(projectId: string): Observable<TaskDependency[]> {
     return this.http
       .get<{ dependencies: TaskDependency[] }>(

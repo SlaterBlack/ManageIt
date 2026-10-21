@@ -22,6 +22,24 @@
           </option>
         </select>
       </label>
+      <div class="task-view-tabs" role="group" aria-label="Task status">
+        <button
+          class="btn"
+          [class.btn-primary]="!archivedView()"
+          [class.btn-secondary]="archivedView()"
+          [attr.aria-pressed]="!archivedView()"
+          type="button"
+          (click)="setArchivedView(false)"
+        >Active</button>
+        <button
+          class="btn"
+          [class.btn-primary]="archivedView()"
+          [class.btn-secondary]="!archivedView()"
+          [attr.aria-pressed]="archivedView()"
+          type="button"
+          (click)="setArchivedView(true)"
+        >Archived</button>
+      </div>
       <form class="search-form" *ngIf="searchOpen()" (ngSubmit)="$event.preventDefault()">
         <input
           id="task-search"
@@ -71,8 +89,8 @@
         </section>
       </div>
       <button class="btn btn-secondary" type="button" (click)="loadTasks()" aria-label="Refresh tasks" [disabled]="!selectedProjectId()">Refresh</button>
-      <button class="btn btn-primary" type="button" (click)="openTaskForm()" [disabled]="!selectedProjectId()">+ Add task</button>
-      <button class="btn btn-secondary" type="button" (click)="openMilestoneForm()" [disabled]="!selectedProjectId()">+ Add milestone</button>
+      <button class="btn btn-primary" type="button" (click)="openTaskForm()" [disabled]="!selectedProjectId() || archivedView()">+ Add task</button>
+      <button class="btn btn-secondary" type="button" (click)="openMilestoneForm()" [disabled]="!selectedProjectId() || archivedView()">+ Add milestone</button>
     </div>
   </header>
 
@@ -91,7 +109,7 @@
   </section>
 
   <ng-container *ngIf="selectedProject() as project">
-    <form class="task-form card" *ngIf="showTaskForm()" (ngSubmit)="createTask()">
+    <form class="task-form card" *ngIf="showTaskForm() && !archivedView()" (ngSubmit)="createTask()">
       <label class="task-field task-name-field">
         {{ creatingMilestone() ? 'Milestone name' : 'Task name' }}
         <input
@@ -139,7 +157,7 @@
       </div>
     </form>
 
-    <form class="task-form task-edit-form card" *ngIf="editingTaskId()" (ngSubmit)="saveTaskEdit()">
+    <form class="task-form task-edit-form card" *ngIf="editingTaskId() && !archivedView()" (ngSubmit)="saveTaskEdit()">
       <div class="task-edit-heading">
         <div>
           <div class="eyebrow">Task details</div>
@@ -192,7 +210,7 @@
     <section class="stats-row" aria-label="Project summary">
       <article class="stat-card card">
         <span class="stat-icon">✓</span>
-        <div><span class="stat-label">TOTAL TASKS</span><strong>{{ tasks().length }}</strong></div>
+        <div><span class="stat-label">{{ archivedView() ? 'ARCHIVED TASKS' : 'TOTAL TASKS' }}</span><strong>{{ displayedTasks().length }}</strong></div>
       </article>
       <article class="stat-card card">
         <span class="stat-icon green">✓</span>
@@ -259,7 +277,7 @@
                 <div class="task-actions">
                   <button
                     class="add-subtask-button"
-                    *ngIf="!row.depth && !row.task.isMilestone"
+                    *ngIf="!archivedView() && !row.depth && !row.task.isMilestone"
                     type="button"
                     [disabled]="creatingSubtaskIds().has(row.task.id)"
                     [attr.aria-label]="'Add subtask to ' + row.task.name"
@@ -274,17 +292,31 @@
                       [attr.aria-expanded]="openTaskMenuId() === row.task.id"
                       aria-haspopup="menu"
                       title="More task options"
+                      [disabled]="isUpdatingTask(row.task.id)"
                       (click)="toggleTaskMenu(row.task.id)"
                     >…</button>
                     <div class="actions-menu" *ngIf="openTaskMenuId() === row.task.id" role="menu">
-                      <button type="button" role="menuitem" (click)="startEditingTask(row.task)">Edit task</button>
+                      <button *ngIf="!archivedView()" type="button" role="menuitem" (click)="startEditingTask(row.task)">Edit task</button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        [disabled]="isUpdatingTask(row.task.id)"
+                        (click)="row.task.isArchived ? restoreTask(row.task) : archiveTask(row.task)"
+                      >{{ row.task.isArchived ? 'Restore task' : 'Archive task' }}</button>
+                      <button
+                        class="delete-action"
+                        type="button"
+                        role="menuitem"
+                        [disabled]="isUpdatingTask(row.task.id)"
+                        (click)="deleteTask(row.task)"
+                      >Delete permanently</button>
                     </div>
                   </div>
                 </div>
               </div>
             </ng-container>
             <ng-template #noTimelineTasks><div class="empty-tasks">{{ emptyTaskMessage() }}</div></ng-template>
-            <button class="task-footer" type="button" (click)="openTaskForm()"><span>＋</span> Add task</button>
+            <button class="task-footer" *ngIf="!archivedView()" type="button" (click)="openTaskForm()"><span>＋</span> Add task</button>
           </div>
 
           <div
@@ -374,6 +406,7 @@
                   (pointerdown)="startTaskTimelineDrag($event, row.task, 'resize-end')"
                 ></button>
                 <button
+                  *ngIf="!archivedView()"
                   class="dependency-handle dependency-handle-left"
                   type="button"
                   [attr.aria-label]="'Drag left handle to make another task a prerequisite of ' + row.task.name"
@@ -382,6 +415,7 @@
                   (pointerdown)="startDependencyDrag($event, row.task, 'before')"
                 ></button>
                 <button
+                  *ngIf="!archivedView()"
                   class="dependency-handle dependency-handle-right"
                   type="button"
                   [attr.aria-label]="'Drag right handle to make ' + row.task.name + ' a prerequisite of another task'"
@@ -418,7 +452,7 @@
                 <div class="task-actions">
                   <button
                     class="add-subtask-button"
-                    *ngIf="!row.depth && !row.task.isMilestone"
+                    *ngIf="!archivedView() && !row.depth && !row.task.isMilestone"
                     type="button"
                     [disabled]="creatingSubtaskIds().has(row.task.id)"
                     [attr.aria-label]="'Add subtask to ' + row.task.name"
@@ -432,10 +466,24 @@
                       [attr.aria-label]="'More options for ' + row.task.name"
                       [attr.aria-expanded]="openTaskMenuId() === row.task.id"
                       aria-haspopup="menu"
+                      [disabled]="isUpdatingTask(row.task.id)"
                       (click)="toggleTaskMenu(row.task.id)"
                     >…</button>
                     <div class="actions-menu" *ngIf="openTaskMenuId() === row.task.id" role="menu">
-                      <button type="button" role="menuitem" (click)="startEditingTask(row.task)">Edit task</button>
+                      <button *ngIf="!archivedView()" type="button" role="menuitem" (click)="startEditingTask(row.task)">Edit task</button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        [disabled]="isUpdatingTask(row.task.id)"
+                        (click)="row.task.isArchived ? restoreTask(row.task) : archiveTask(row.task)"
+                      >{{ row.task.isArchived ? 'Restore task' : 'Archive task' }}</button>
+                      <button
+                        class="delete-action"
+                        type="button"
+                        role="menuitem"
+                        [disabled]="isUpdatingTask(row.task.id)"
+                        (click)="deleteTask(row.task)"
+                      >Delete permanently</button>
                     </div>
                   </div>
                 </div>
@@ -453,9 +501,9 @@
         <span><i class="legend-dot upcoming-dot"></i> Today</span>
         <span class="legend-hint">Drag bars to move them; drag their ends to resize dates. Drag the outer dots to create dependencies.</span>
       </div>
-      <div class="dependency-list" *ngIf="dependencies().length">
+      <div class="dependency-list" *ngIf="!archivedView() && visibleDependencies().length">
         <strong>Dependencies</strong>
-        <span class="dependency-chip" *ngFor="let dependency of dependencies()">
+        <span class="dependency-chip" *ngFor="let dependency of visibleDependencies()">
           <span>{{ taskNameFor(dependency.predecessorTaskId) }} → {{ taskNameFor(dependency.successorTaskId) }}</span>
           <button
             type="button"

@@ -6,6 +6,7 @@ import {
 } from './config/database';
 import { env } from './config/env';
 import './models';
+import { migrateArchiveState } from './models/archiveStateMigration';
 import { migrateProjectMetadata } from './models/projectMetadataMigration';
 import { migrateTaskStructure } from './models/taskStructureMigration';
 import { seedDemoProjectIfEmpty } from './models/seed';
@@ -15,6 +16,7 @@ async function bootstrap(): Promise<void> {
   if (env.nodeEnv === 'development') {
     await migrateProjectMetadata();
     await migrateTaskStructure();
+    await migrateArchiveState();
     await sequelize.sync({ alter: true });
     await seedDemoProjectIfEmpty();
   }

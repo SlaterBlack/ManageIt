@@ -1,6 +1,12 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  HostListener,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { finalize } from 'rxjs';
@@ -30,12 +36,17 @@ export class Projects {
   readonly editingProjectId = signal<string | null>(null);
   readonly isSavingProject = signal(false);
   readonly updatingColorIds = signal<ReadonlySet<string>>(new Set());
+  readonly updatingProjectIds = signal<ReadonlySet<string>>(new Set());
+  readonly openProjectMenuId = signal<string | null>(null);
+  readonly archivedView = signal(false);
   readonly visibleProjects = computed(() => {
     const query = this.searchTerm().trim().toLocaleLowerCase();
-    return this.projects().filter((project) =>
-      `${project.projectCode} ${project.name} ${project.description}`
-        .toLocaleLowerCase()
-        .includes(query),
+    return this.projects().filter(
+      (project) =>
+        project.isArchived === this.archivedView() &&
+        `${project.projectCode} ${project.name} ${project.description}`
+          .toLocaleLowerCase()
+          .includes(query),
     );
   });
 
@@ -122,6 +133,7 @@ export class Projects {
 
   startEditingProject(project: Project): void {
     this.errorMessage.set('');
+    this.openProjectMenuId.set(null);
     this.editingProjectId.set(project.id);
     this.editedProjectCode = project.projectCode;
     this.editedProjectName = project.name;
@@ -216,6 +228,74 @@ export class Projects {
       });
   }
 
+  toggleProjectMenu(projectId: string): void {
+    this.openProjectMenuId.update((current) =>
+      current === projectId ? null : projectId,
+    );
+  }
+
+  archiveProject(project: Project): void {
+    this.setProjectArchived(project, true);
+  }
+
+  restoreProject(project: Project): void {
+    this.setProjectArchived(project, false);
+  }
+
+  deleteProject(project: Project): void {
+    if (
+      !window.confirm(
+        `Permanently delete "${project.name}" and all of its tasks and dependencies? This cannot be undone.`,
+      )
+    ) {
+      this.openProjectMenuId.set(null);
+      return;
+    }
+
+    this.openProjectMenuId.set(null);
+    this.updatingProjectIds.update(
+      (ids) => new Set(ids).add(project.id),
+    );
+    this.projectsApi
+      .delete(project.id)
+      .pipe(
+        finalize(() =>
+          this.updatingProjectIds.update((ids) => {
+            const nextIds = new Set(ids);
+            nextIds.delete(project.id);
+            return nextIds;
+          }),
+        ),
+      )
+      .subscribe({
+        next: () => {
+          this.projects.update((projects) =>
+            projects.filter((item) => item.id !== project.id),
+          );
+          this.errorMessage.set('');
+        },
+        error: (error: unknown) => {
+          this.errorMessage.set(
+            this.apiError(error, 'Could not delete the project. Please try again.'),
+          );
+        },
+      });
+  }
+
+  isUpdatingProject(projectId: string): boolean {
+    return this.updatingProjectIds().has(projectId);
+  }
+
+  @HostListener('document:click', ['$event'])
+  closeProjectMenuOnOutsideClick(event: MouseEvent): void {
+    if (
+      event.target instanceof Element &&
+      !event.target.closest('.project-menu')
+    ) {
+      this.openProjectMenuId.set(null);
+    }
+  }
+
   openCalendar(project: Project): void {
     void this.router.navigate(['/calendar'], {
       queryParams: { project: project.id },
@@ -237,5 +317,44 @@ export class Projects {
       return error.error.error;
     }
     return fallback;
+  }
+
+  private setProjectArchived(project: Project, isArchived: boolean): void {
+    if (this.isUpdatingProject(project.id)) {
+      return;
+    }
+    this.openProjectMenuId.set(null);
+    this.updatingProjectIds.update(
+      (ids) => new Set(ids).add(project.id),
+    );
+    this.projectsApi
+      .update(project.id, { isArchived })
+      .pipe(
+        finalize(() =>
+          this.updatingProjectIds.update((ids) => {
+            const nextIds = new Set(ids);
+            nextIds.delete(project.id);
+            return nextIds;
+          }),
+        ),
+      )
+      .subscribe({
+        next: (updatedProject) => {
+          this.projects.update((projects) =>
+            projects.map((item) =>
+              item.id === project.id ? updatedProject : item,
+            ),
+          );
+          this.errorMessage.set('');
+        },
+        error: (error: unknown) => {
+          this.errorMessage.set(
+            this.apiError(
+              error,
+              `Could not ${isArchived ? 'archive' : 'restore'} the project. Please try again.`,
+            ),
+          );
+        },
+      });
   }
 }

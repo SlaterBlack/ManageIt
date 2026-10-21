@@ -67,6 +67,7 @@ export class Calendar {
   readonly errorMessage = signal('');
   readonly showTaskForm = signal(false);
   readonly creatingMilestone = signal(false);
+  readonly archivedView = signal(false);
   readonly viewMode = signal<'timeline' | 'list'>('timeline');
   readonly searchOpen = signal(false);
   readonly searchTerm = signal('');
@@ -81,24 +82,38 @@ export class Calendar {
   readonly openTaskMenuId = signal<string | null>(null);
   readonly savingTask = signal(false);
   readonly creatingSubtaskIds = signal<ReadonlySet<string>>(new Set());
+  readonly updatingTaskIds = signal<ReadonlySet<string>>(new Set());
   readonly selectedProject = computed(() =>
     this.projects().find((project) => project.id === this.selectedProjectId()),
   );
   readonly completedCount = computed(
-    () => this.tasks().filter((task) => task.status === 'complete').length,
+    () => this.displayedTasks().filter((task) => task.status === 'complete').length,
   );
   readonly inProgressCount = computed(
-    () => this.tasks().filter((task) => task.status === 'in_progress').length,
+    () => this.displayedTasks().filter((task) => task.status === 'in_progress').length,
   );
+  readonly displayedTasks = computed(() => {
+    const tasks = this.tasks();
+    const archived = this.archivedView();
+    return tasks.filter((task) => {
+      if (task.isArchived !== archived) {
+        return false;
+      }
+      if (archived || !task.parentTaskId) {
+        return true;
+      }
+      return !tasks.find((parent) => parent.id === task.parentTaskId)?.isArchived;
+    });
+  });
   readonly visibleTasks = computed(() => {
     const query = this.searchTerm().trim().toLocaleLowerCase();
-    return this.tasks().filter((task) =>
+    return this.displayedTasks().filter((task) =>
       !query ||
       `${task.name} ${task.assignee}`.toLocaleLowerCase().includes(query),
     );
   });
   readonly timelineTasks = computed<TimelineTask[]>(() => {
-    const tasks = this.tasks();
+    const tasks = this.displayedTasks();
     const query = this.searchTerm().trim().toLocaleLowerCase();
     const matches = (task: Task): boolean =>
       !query || `${task.name} ${task.assignee}`.toLocaleLowerCase().includes(query);
@@ -113,7 +128,10 @@ export class Calendar {
     const sortByDate = (left: Task, right: Task): number =>
       left.startDate.localeCompare(right.startDate) ||
       left.name.localeCompare(right.name);
-    const roots = tasks.filter((task) => !task.parentTaskId).sort(sortByDate);
+    const taskIds = new Set(tasks.map((task) => task.id));
+    const roots = tasks
+      .filter((task) => !task.parentTaskId || !taskIds.has(task.parentTaskId))
+      .sort(sortByDate);
     return roots.flatMap((parent) => {
       const children = (childrenByParent.get(parent.id) ?? []).sort(sortByDate);
       const parentMatches = matches(parent);
@@ -142,7 +160,7 @@ export class Calendar {
     today.setHours(0, 0, 0, 0);
     const nextWeek = new Date(today);
     nextWeek.setDate(nextWeek.getDate() + 7);
-    return this.tasks()
+    return this.displayedTasks()
       .filter((task) => new Date(`${task.dueDate}T00:00:00`) <= nextWeek)
       .sort((left, right) => left.dueDate.localeCompare(right.dueDate));
   });
@@ -154,10 +172,10 @@ export class Calendar {
         : 'Comfortable',
   );
   readonly overallProgress = computed(() =>
-    this.tasks().length
+    this.displayedTasks().length
       ? Math.round(
-          this.tasks().reduce((total, task) => total + task.progress, 0) /
-            this.tasks().length,
+          this.displayedTasks().reduce((total, task) => total + task.progress, 0) /
+            this.displayedTasks().length,
         )
       : 0,
   );
@@ -207,7 +225,7 @@ export class Calendar {
     this.loadingProjects.set(true);
     this.projectsApi.list().subscribe({
       next: (projects) => {
-        this.projects.set(projects);
+        this.projects.set(projects.filter((project) => !project.isArchived));
         this.loadingProjects.set(false);
         this.errorMessage.set('');
         this.projectsLoaded = true;
@@ -259,6 +277,15 @@ export class Calendar {
     if (project) this.selectProject(project);
   }
 
+  setArchivedView(archived: boolean): void {
+    this.archivedView.set(archived);
+    this.openTaskMenuId.set(null);
+    this.editingTaskId.set(null);
+    this.showTaskForm.set(false);
+    this.creatingMilestone.set(false);
+    this.updateTimeline(this.displayedTasks());
+  }
+
   toggleTaskForm(): void {
     this.showTaskForm.update((visible) => !visible);
     if (!this.showTaskForm()) this.creatingMilestone.set(false);
@@ -295,7 +322,7 @@ export class Calendar {
         this.errorMessage.set('');
         this.loadedTaskProjectId = projectId;
         this.requestedTaskProjectId = '';
-        this.updateTimeline(tasks);
+        this.updateTimeline(this.displayedTasks());
       },
       error: (error: unknown) => {
         if (
@@ -333,7 +360,7 @@ export class Calendar {
               left.startDate.localeCompare(right.startDate),
             ),
           );
-          this.updateTimeline(this.tasks());
+          this.updateTimeline(this.displayedTasks());
           this.taskName = '';
           this.taskAssignee = '';
           this.showTaskForm.set(false);
@@ -371,7 +398,7 @@ export class Calendar {
       .subscribe({
         next: (task) => {
           this.tasks.update((tasks) => [...tasks, task]);
-          this.updateTimeline(this.tasks());
+          this.updateTimeline(this.displayedTasks());
           this.creatingSubtaskIds.update((ids) => {
             const nextIds = new Set(ids);
             nextIds.delete(parent.id);
@@ -406,6 +433,9 @@ export class Calendar {
     task: Task,
     side: 'before' | 'after',
   ): void {
+    if (this.archivedView()) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     this.dependencyDrag.set({ taskId: task.id, side });
@@ -420,6 +450,7 @@ export class Calendar {
     if (
       event.button !== 0 ||
       this.dependencyDrag() ||
+      this.archivedView() ||
       (task.isMilestone && mode !== 'move')
     ) {
       return;
@@ -504,6 +535,110 @@ export class Calendar {
     );
   }
 
+  archiveTask(task: Task): void {
+    this.setTaskArchived(task, true);
+  }
+
+  restoreTask(task: Task): void {
+    this.setTaskArchived(task, false);
+  }
+
+  deleteTask(task: Task): void {
+    const descendants = this.tasks().filter(
+      (item) => item.parentTaskId === task.id,
+    );
+    const cascadeDescription = descendants.length
+      ? ' and its subtasks'
+      : '';
+    if (
+      !window.confirm(
+        `Permanently delete "${task.name}"${cascadeDescription} and its dependencies? This cannot be undone.`,
+      )
+    ) {
+      this.openTaskMenuId.set(null);
+      return;
+    }
+
+    this.openTaskMenuId.set(null);
+    this.updatingTaskIds.update((ids) => new Set(ids).add(task.id));
+    this.tasksApi.delete(task.id).subscribe({
+      next: () => {
+        const deletedIds = new Set([
+          task.id,
+          ...descendants.map((item) => item.id),
+        ]);
+        this.tasks.update((tasks) =>
+          tasks.filter((item) => !deletedIds.has(item.id)),
+        );
+        this.dependencies.update((dependencies) =>
+          dependencies.filter(
+            (dependency) =>
+              !deletedIds.has(dependency.predecessorTaskId) &&
+              !deletedIds.has(dependency.successorTaskId),
+          ),
+        );
+        this.updatingTaskIds.update((ids) => {
+          const nextIds = new Set(ids);
+          nextIds.delete(task.id);
+          return nextIds;
+        });
+        this.updateTimeline(this.displayedTasks());
+        this.errorMessage.set('');
+      },
+      error: (error: unknown) => {
+        this.updatingTaskIds.update((ids) => {
+          const nextIds = new Set(ids);
+          nextIds.delete(task.id);
+          return nextIds;
+        });
+        this.errorMessage.set(
+          this.apiError(error, 'Could not delete the task. Please try again.'),
+        );
+      },
+    });
+  }
+
+  isUpdatingTask(taskId: string): boolean {
+    return this.updatingTaskIds().has(taskId);
+  }
+
+  private setTaskArchived(task: Task, isArchived: boolean): void {
+    if (this.isUpdatingTask(task.id)) {
+      return;
+    }
+    this.openTaskMenuId.set(null);
+    this.updatingTaskIds.update((ids) => new Set(ids).add(task.id));
+    this.tasksApi.update(task.id, { isArchived }).subscribe({
+      next: (updatedTask) => {
+        this.tasks.update((tasks) =>
+          tasks.map((item) =>
+            item.id === task.id ? updatedTask : item,
+          ),
+        );
+        this.updatingTaskIds.update((ids) => {
+          const nextIds = new Set(ids);
+          nextIds.delete(task.id);
+          return nextIds;
+        });
+        this.updateTimeline(this.displayedTasks());
+        this.errorMessage.set('');
+      },
+      error: (error: unknown) => {
+        this.updatingTaskIds.update((ids) => {
+          const nextIds = new Set(ids);
+          nextIds.delete(task.id);
+          return nextIds;
+        });
+        this.errorMessage.set(
+          this.apiError(
+            error,
+            `Could not ${isArchived ? 'archive' : 'restore'} the task. Please try again.`,
+          ),
+        );
+      },
+    });
+  }
+
   startEditingTask(task: Task): void {
     this.openTaskMenuId.set(null);
     this.editingTaskId.set(task.id);
@@ -576,7 +711,7 @@ export class Calendar {
           this.tasks.update((tasks) =>
             tasks.map((task) => (task.id === taskId ? updated : task)),
           );
-          this.updateTimeline(this.tasks());
+          this.updateTimeline(this.displayedTasks());
           this.editingTaskId.set(null);
           this.savingTask.set(false);
           this.errorMessage.set('');
@@ -788,6 +923,7 @@ export class Calendar {
 
   emptyTaskMessage(): string {
     if (this.searchTerm().trim()) return 'No tasks match your search.';
+    if (this.archivedView()) return 'No archived tasks in this project.';
     return 'No tasks yet. Add the first task to start your timeline.';
   }
 
@@ -970,7 +1106,7 @@ export class Calendar {
         item.id === task.id ? { ...item, ...dates } : item,
       ),
     );
-    this.updateTimeline(this.tasks());
+    this.updateTimeline(this.displayedTasks());
     this.tasksApi
       .update(task.id, dates)
       .subscribe({
@@ -978,12 +1114,12 @@ export class Calendar {
           this.tasks.update((tasks) =>
             tasks.map((item) => (item.id === updated.id ? updated : item)),
           );
-          this.updateTimeline(this.tasks());
+          this.updateTimeline(this.displayedTasks());
           this.errorMessage.set('');
         },
         error: (error: unknown) => {
           this.tasks.set(previousTasks);
-          this.updateTimeline(previousTasks);
+          this.updateTimeline(this.displayedTasks());
           this.errorMessage.set(
             this.apiError(
               error,

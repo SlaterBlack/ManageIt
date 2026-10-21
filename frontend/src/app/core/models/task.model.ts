@@ -5,6 +5,7 @@ export interface Task {
   projectId: string;
   parentTaskId: string | null;
   isMilestone: boolean;
+  isArchived: boolean;
   name: string;
   assignee: string;
   startDate: string;
@@ -31,4 +32,5 @@ export interface TaskUpdate {
   dueDate?: string;
   progress?: number;
   status?: TaskStatus;
+  isArchived?: boolean;
 }

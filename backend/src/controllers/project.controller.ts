@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
-import { Project, Task } from '../models';
+import { sequelize } from '../config/database';
+import { Project, Task, TaskDependency } from '../models';
 import { DEFAULT_PROJECT_COLOR } from '../models/Project';
 import { ApiError } from '../utils/ApiError';
 import { asyncHandler } from '../utils/asyncHandler';
@@ -98,12 +99,14 @@ export const updateProject = asyncHandler(
       description?: unknown;
       projectCode?: unknown;
       color?: unknown;
+      isArchived?: unknown;
     };
     if (
       changes.name === undefined &&
       changes.description === undefined &&
       changes.projectCode === undefined &&
-      changes.color === undefined
+      changes.color === undefined &&
+      changes.isArchived === undefined
     ) {
       throw new ApiError(400, 'At least one project field must be provided.');
     }
@@ -112,6 +115,7 @@ export const updateProject = asyncHandler(
       description?: string;
       projectCode?: string;
       color?: string;
+      isArchived?: boolean;
     } = {};
     if (name !== undefined) {
       updates.name = validateName(name, 'Project name');
@@ -130,6 +134,12 @@ export const updateProject = asyncHandler(
     if (changes.color !== undefined) {
       updates.color = validateColor(changes.color);
     }
+    if (changes.isArchived !== undefined) {
+      if (typeof changes.isArchived !== 'boolean') {
+        throw new ApiError(400, 'Archived must be a boolean value.');
+      }
+      updates.isArchived = changes.isArchived;
+    }
     await project.update(updates);
     res.json({ project });
   },
@@ -141,7 +151,17 @@ export const deleteProject = asyncHandler(
     if (!project) {
       throw new ApiError(404, 'Project not found.');
     }
-    await project.destroy();
+    await sequelize.transaction(async (transaction) => {
+      await TaskDependency.destroy({
+        where: { projectId: project.id },
+        transaction,
+      });
+      await Task.destroy({
+        where: { projectId: project.id },
+        transaction,
+      });
+      await project.destroy({ transaction });
+    });
     res.status(204).send();
   },
 );

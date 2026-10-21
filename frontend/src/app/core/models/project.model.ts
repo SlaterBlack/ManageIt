@@ -4,6 +4,7 @@ export interface Project {
   name: string;
   description: string;
   color: string;
+  isArchived: boolean;
   createdAt: string;
   updatedAt: string;
 }

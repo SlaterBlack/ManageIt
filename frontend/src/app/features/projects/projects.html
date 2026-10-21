@@ -64,9 +64,23 @@
   </form>
 
   <section class="projects-toolbar card" aria-label="Project list tools">
-    <div>
-      <strong>{{ projects().length }} {{ projects().length === 1 ? 'project' : 'projects' }}</strong>
-      <span>available to the whole team</span>
+    <div class="project-view-tabs" role="group" aria-label="Project status">
+      <button
+        type="button"
+        [class.active]="!archivedView()"
+        [attr.aria-pressed]="!archivedView()"
+        (click)="archivedView.set(false)"
+      >Active</button>
+      <button
+        type="button"
+        [class.active]="archivedView()"
+        [attr.aria-pressed]="archivedView()"
+        (click)="archivedView.set(true)"
+      >Archived</button>
+    </div>
+    <div class="project-count">
+      <strong>{{ visibleProjects().length }} {{ visibleProjects().length === 1 ? 'project' : 'projects' }}</strong>
+      <span>{{ archivedView() ? 'archived' : 'available to the whole team' }}</span>
     </div>
     <label class="project-search">
       <span class="visually-hidden">Search projects</span>
@@ -96,7 +110,41 @@
           />
           <span class="project-code">{{ project.projectCode }}</span>
         </div>
-        <span class="shared-label">Shared</span>
+        <div class="project-card-tools">
+          <span class="shared-label">{{ project.isArchived ? 'Archived' : 'Shared' }}</span>
+          <div class="project-menu">
+            <button
+              class="project-menu-trigger"
+              type="button"
+              [attr.aria-label]="'More options for ' + project.name"
+              [attr.aria-expanded]="openProjectMenuId() === project.id"
+              aria-haspopup="menu"
+              [disabled]="isUpdatingProject(project.id)"
+              (click)="toggleProjectMenu(project.id)"
+            >…</button>
+            <div class="project-actions-menu" *ngIf="openProjectMenuId() === project.id" role="menu">
+              <button
+                *ngIf="!project.isArchived"
+                type="button"
+                role="menuitem"
+                (click)="startEditingProject(project)"
+              >Edit project</button>
+              <button
+                type="button"
+                role="menuitem"
+                [disabled]="isUpdatingProject(project.id)"
+                (click)="project.isArchived ? restoreProject(project) : archiveProject(project)"
+              >{{ project.isArchived ? 'Restore project' : 'Archive project' }}</button>
+              <button
+                class="delete-action"
+                type="button"
+                role="menuitem"
+                [disabled]="isUpdatingProject(project.id)"
+                (click)="deleteProject(project)"
+              >Delete permanently</button>
+            </div>
+          </div>
+        </div>
       </div>
       <form
         class="project-details-form"
@@ -148,26 +196,25 @@
         <span>Created {{ project.createdAt | date:'mediumDate' }}</span>
         <div class="project-card-actions">
           <button
-            class="btn btn-secondary"
+            class="btn btn-primary"
             type="button"
-            *ngIf="editingProjectId() !== project.id"
-            (click)="startEditingProject(project)"
-          >Edit details</button>
-          <button class="btn btn-primary" type="button" (click)="openCalendar(project)">Open calendar</button>
+            *ngIf="!project.isArchived"
+            (click)="openCalendar(project)"
+          >Open calendar</button>
         </div>
       </div>
     </article>
   </section>
 
-  <section class="empty-project card" *ngIf="!loading() && !projects().length">
+  <section class="empty-project card" *ngIf="!loading() && !archivedView() && !visibleProjects().length && !searchTerm().trim()">
     <div class="empty-icon">＋</div>
     <h2>Create your first project</h2>
     <p>Projects keep your team's tasks and timelines organized in one shared space.</p>
     <button class="btn btn-primary" type="button" (click)="openProjectForm()">Create a project</button>
   </section>
 
-  <section class="empty-search card" *ngIf="!loading() && projects().length && !visibleProjects().length">
-    <h2>No matching projects</h2>
-    <p>Try a different search term.</p>
+  <section class="empty-search card" *ngIf="!loading() && !visibleProjects().length && (searchTerm().trim() || archivedView())">
+    <h2>{{ searchTerm().trim() ? 'No matching projects' : 'No archived projects' }}</h2>
+    <p>{{ searchTerm().trim() ? 'Try a different search term.' : 'Archived projects will appear here and can be restored.' }}</p>
   </section>
 </main>
