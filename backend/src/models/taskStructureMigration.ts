@@ -21,6 +21,13 @@ export async function migrateTaskStructure(): Promise<void> {
       onUpdate: 'CASCADE',
     });
   }
+  if (!taskColumns.is_milestone) {
+    await queryInterface.addColumn('tasks', 'is_milestone', {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    });
+  }
 
   const taskIndexes = await sequelize.query<{ indexname: string }>(
     `SELECT indexname FROM pg_indexes

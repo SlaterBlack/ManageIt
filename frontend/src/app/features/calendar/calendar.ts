@@ -66,6 +66,7 @@ export class Calendar {
   readonly loadingTasks = signal(false);
   readonly errorMessage = signal('');
   readonly showTaskForm = signal(false);
+  readonly creatingMilestone = signal(false);
   readonly viewMode = signal<'timeline' | 'list'>('timeline');
   readonly searchOpen = signal(false);
   readonly searchTerm = signal('');
@@ -181,7 +182,6 @@ export class Calendar {
 
   taskName = '';
   taskAssignee = '';
-  taskParentId = '';
   taskStartDate = this.dateInput(new Date());
   taskDueDate = this.dateInput(new Date(Date.now() + 7 * 86400000));
   editedTaskName = '';
@@ -261,9 +261,16 @@ export class Calendar {
 
   toggleTaskForm(): void {
     this.showTaskForm.update((visible) => !visible);
+    if (!this.showTaskForm()) this.creatingMilestone.set(false);
   }
 
   openTaskForm(): void {
+    this.creatingMilestone.set(false);
+    this.showTaskForm.set(true);
+  }
+
+  openMilestoneForm(): void {
+    this.creatingMilestone.set(true);
     this.showTaskForm.set(true);
   }
 
@@ -312,10 +319,12 @@ export class Calendar {
     this.tasksApi
       .create(projectId, {
         name: this.taskName.trim(),
-        assignee: this.taskAssignee.trim(),
-        parentTaskId: this.taskParentId || null,
+        assignee: this.creatingMilestone() ? '' : this.taskAssignee.trim(),
+        isMilestone: this.creatingMilestone(),
         startDate: this.taskStartDate,
-        dueDate: this.taskDueDate,
+        dueDate: this.creatingMilestone()
+          ? this.taskStartDate
+          : this.taskDueDate,
       })
       .subscribe({
         next: (task) => {
@@ -327,8 +336,8 @@ export class Calendar {
           this.updateTimeline(this.tasks());
           this.taskName = '';
           this.taskAssignee = '';
-          this.taskParentId = '';
           this.showTaskForm.set(false);
+          this.creatingMilestone.set(false);
           this.errorMessage.set('');
         },
         error: (error: unknown) =>
@@ -341,17 +350,12 @@ export class Calendar {
       });
   }
 
-  selectTaskParent(parentTaskId: string): void {
-    this.taskParentId = parentTaskId;
-    const parent = this.tasks().find((task) => task.id === parentTaskId);
-    if (parent) {
-      this.taskStartDate = parent.startDate;
-      this.taskDueDate = parent.dueDate;
-    }
-  }
-
   addSubtask(parent: Task): void {
-    if (parent.parentTaskId || this.creatingSubtaskIds().has(parent.id)) {
+    if (
+      parent.parentTaskId ||
+      parent.isMilestone ||
+      this.creatingSubtaskIds().has(parent.id)
+    ) {
       return;
     }
     this.openTaskMenuId.set(null);
@@ -389,13 +393,11 @@ export class Calendar {
   }
 
   canCreateTask(): boolean {
-    const parent = this.tasks().find((task) => task.id === this.taskParentId);
     return (
       Boolean(this.taskName.trim()) &&
-      this.taskStartDate <= this.taskDueDate &&
-      (!parent ||
-        (this.taskStartDate >= parent.startDate &&
-          this.taskDueDate <= parent.dueDate))
+      Boolean(this.taskStartDate) &&
+      (this.creatingMilestone() ||
+        this.taskStartDate <= this.taskDueDate)
     );
   }
 
@@ -415,7 +417,11 @@ export class Calendar {
     task: Task,
     mode: TaskTimelineDrag['mode'],
   ): void {
-    if (event.button !== 0 || this.dependencyDrag()) {
+    if (
+      event.button !== 0 ||
+      this.dependencyDrag() ||
+      (task.isMilestone && mode !== 'move')
+    ) {
       return;
     }
     event.preventDefault();
@@ -509,26 +515,37 @@ export class Calendar {
     this.editedTaskStatus = task.status;
   }
 
+  editingTaskIsMilestone(): boolean {
+    return (
+      this.tasks().find((task) => task.id === this.editingTaskId())
+        ?.isMilestone ?? false
+    );
+  }
+
   cancelTaskEdit(): void {
     this.editingTaskId.set(null);
   }
 
   canSaveTaskEdit(): boolean {
     const task = this.tasks().find((item) => item.id === this.editingTaskId());
-    const bounds = task ? this.taskDateBounds(task) : {};
+    if (!task) return false;
+    const bounds = this.taskDateBounds(task);
+    const dueDate = task.isMilestone
+      ? this.editedTaskStartDate
+      : this.editedTaskDueDate;
     return (
       Boolean(this.editedTaskName.trim()) &&
       this.editedTaskName.trim().length <= 120 &&
       this.editedTaskAssignee.trim().length <= 120 &&
       Boolean(this.editedTaskStartDate) &&
-      Boolean(this.editedTaskDueDate) &&
-      this.editedTaskStartDate <= this.editedTaskDueDate &&
+      Boolean(dueDate) &&
+      this.editedTaskStartDate <= dueDate &&
       (!bounds.minimumStart ||
         this.editedTaskStartDate >= bounds.minimumStart) &&
       (!bounds.maximumStart ||
         this.editedTaskStartDate <= bounds.maximumStart) &&
-      (!bounds.minimumDue || this.editedTaskDueDate >= bounds.minimumDue) &&
-      (!bounds.maximumDue || this.editedTaskDueDate <= bounds.maximumDue) &&
+      (!bounds.minimumDue || dueDate >= bounds.minimumDue) &&
+      (!bounds.maximumDue || dueDate <= bounds.maximumDue) &&
       Number.isInteger(this.editedTaskProgress) &&
       this.editedTaskProgress >= 0 &&
       this.editedTaskProgress <= 100 &&
@@ -538,7 +555,8 @@ export class Calendar {
 
   saveTaskEdit(): void {
     const taskId = this.editingTaskId();
-    if (!taskId || !this.canSaveTaskEdit()) {
+    const task = this.tasks().find((item) => item.id === taskId);
+    if (!taskId || !task || !this.canSaveTaskEdit()) {
       return;
     }
     this.savingTask.set(true);
@@ -547,7 +565,9 @@ export class Calendar {
         name: this.editedTaskName.trim(),
         assignee: this.editedTaskAssignee.trim(),
         startDate: this.editedTaskStartDate,
-        dueDate: this.editedTaskDueDate,
+        dueDate: task.isMilestone
+          ? this.editedTaskStartDate
+          : this.editedTaskDueDate,
         progress: this.editedTaskProgress,
         status: this.editedTaskStatus,
       })
@@ -789,8 +809,9 @@ export class Calendar {
       return `"${safeValue.replaceAll('"', '""')}"`;
     };
     const rows = [
-      ['Task', 'Assignee', 'Start date', 'Due date', 'Status', 'Progress'],
+      ['Type', 'Task', 'Assignee', 'Start date', 'Due date', 'Status', 'Progress'],
       ...this.visibleTasks().map((task) => [
+        task.isMilestone ? 'Milestone' : 'Task',
         task.name,
         task.assignee,
         task.startDate,
@@ -818,12 +839,16 @@ export class Calendar {
     const days = this.timelineDays();
     if (!days.length) return 0;
     const dates = this.taskDatesFor(task);
-    return Math.max(0, (this.dayIndex(dates.startDate) / days.length) * 100);
+    const markerOffset = task.isMilestone ? 0.5 : 0;
+    return Math.max(
+      0,
+      ((this.dayIndex(dates.startDate) + markerOffset) / days.length) * 100,
+    );
   }
 
   taskWidth(task: Task): number {
     const days = this.timelineDays();
-    if (!days.length) return 0;
+    if (!days.length || task.isMilestone) return 0;
     const dates = this.taskDatesFor(task);
     const start = this.dayIndex(dates.startDate);
     const end = this.dayIndex(dates.dueDate);

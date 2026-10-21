@@ -8,6 +8,7 @@ export interface TaskAttributes {
   id: string;
   projectId: string;
   parentTaskId: string | null;
+  isMilestone: boolean;
   name: string;
   assignee: string;
   startDate: string;
@@ -20,7 +21,14 @@ export interface TaskAttributes {
 
 export type TaskCreationAttributes = Optional<
   TaskAttributes,
-  'id' | 'parentTaskId' | 'assignee' | 'progress' | 'status' | 'createdAt' | 'updatedAt'
+  | 'id'
+  | 'parentTaskId'
+  | 'isMilestone'
+  | 'assignee'
+  | 'progress'
+  | 'status'
+  | 'createdAt'
+  | 'updatedAt'
 >;
 
 export class Task
@@ -30,6 +38,7 @@ export class Task
   public id!: string;
   public projectId!: string;
   public parentTaskId!: string | null;
+  public isMilestone!: boolean;
   public name!: string;
   public assignee!: string;
   public startDate!: string;
@@ -54,6 +63,11 @@ Task.init(
     parentTaskId: {
       type: DataTypes.UUID,
       allowNull: true,
+    },
+    isMilestone: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
     name: {
       type: DataTypes.STRING(120),

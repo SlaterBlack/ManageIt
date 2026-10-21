@@ -72,6 +72,7 @@
       </div>
       <button class="btn btn-secondary" type="button" (click)="loadTasks()" aria-label="Refresh tasks" [disabled]="!selectedProjectId()">Refresh</button>
       <button class="btn btn-primary" type="button" (click)="openTaskForm()" [disabled]="!selectedProjectId()">+ Add task</button>
+      <button class="btn btn-secondary" type="button" (click)="openMilestoneForm()" [disabled]="!selectedProjectId()">+ Add milestone</button>
     </div>
   </header>
 
@@ -92,17 +93,17 @@
   <ng-container *ngIf="selectedProject() as project">
     <form class="task-form card" *ngIf="showTaskForm()" (ngSubmit)="createTask()">
       <label class="task-field task-name-field">
-        Task name
+        {{ creatingMilestone() ? 'Milestone name' : 'Task name' }}
         <input
           type="text"
           name="taskName"
           [(ngModel)]="taskName"
-          maxlength="180"
+          maxlength="120"
           placeholder="What needs to be done?"
           required
         >
       </label>
-      <label class="task-field">
+      <label class="task-field" *ngIf="!creatingMilestone()">
         Assignee
         <input
           type="text"
@@ -113,43 +114,28 @@
         >
       </label>
       <label class="task-field">
-        Parent task
-        <select
-          name="taskParent"
-          [ngModel]="taskParentId"
-          (ngModelChange)="selectTaskParent($event)"
-        >
-          <option value="">No parent task</option>
-          <option *ngFor="let parent of tasks()" [value]="parent.id" [disabled]="parent.parentTaskId">
-            {{ parent.name }}
-          </option>
-        </select>
-      </label>
-      <label class="task-field">
-        Start date
+        {{ creatingMilestone() ? 'Milestone date' : 'Start date' }}
         <input
           type="date"
           name="taskStartDate"
           [(ngModel)]="taskStartDate"
-          [attr.min]="tasks().find(task => task.id === taskParentId)?.startDate || null"
-          [attr.max]="tasks().find(task => task.id === taskParentId)?.dueDate || null"
           required
         >
       </label>
-      <label class="task-field">
+      <label class="task-field" *ngIf="!creatingMilestone()">
         Due date
         <input
           type="date"
           name="taskDueDate"
           [(ngModel)]="taskDueDate"
-          [attr.min]="tasks().find(task => task.id === taskParentId)?.startDate || null"
-          [attr.max]="tasks().find(task => task.id === taskParentId)?.dueDate || null"
           required
         >
       </label>
       <div class="task-form-actions">
         <button class="btn btn-secondary" type="button" (click)="toggleTaskForm()">Cancel</button>
-        <button class="btn btn-primary" type="submit" [disabled]="!canCreateTask()">Add task</button>
+        <button class="btn btn-primary" type="submit" [disabled]="!canCreateTask()">
+          {{ creatingMilestone() ? 'Add milestone' : 'Add task' }}
+        </button>
       </div>
     </form>
 
@@ -168,7 +154,7 @@
         >×</button>
       </div>
       <label class="task-field">
-        Task name
+        {{ editingTaskIsMilestone() ? 'Milestone name' : 'Task name' }}
         <input type="text" name="editedTaskName" [(ngModel)]="editedTaskName" maxlength="120" required>
       </label>
       <label class="task-field">
@@ -176,10 +162,10 @@
         <input type="text" name="editedTaskAssignee" [(ngModel)]="editedTaskAssignee" maxlength="120">
       </label>
       <label class="task-field">
-        Start date
+        {{ editingTaskIsMilestone() ? 'Milestone date' : 'Start date' }}
         <input type="date" name="editedTaskStartDate" [(ngModel)]="editedTaskStartDate" required>
       </label>
-      <label class="task-field">
+      <label class="task-field" *ngIf="!editingTaskIsMilestone()">
         Due date
         <input type="date" name="editedTaskDueDate" [(ngModel)]="editedTaskDueDate" required>
       </label>
@@ -273,7 +259,7 @@
                 <div class="task-actions">
                   <button
                     class="add-subtask-button"
-                    *ngIf="!row.depth"
+                    *ngIf="!row.depth && !row.task.isMilestone"
                     type="button"
                     [disabled]="creatingSubtaskIds().has(row.task.id)"
                     [attr.aria-label]="'Add subtask to ' + row.task.name"
@@ -362,15 +348,17 @@
                 role="group"
                 [class.bar-complete]="row.task.status === 'complete'"
                 [class.bar-subtask]="row.depth > 0"
+                [class.bar-milestone]="row.task.isMilestone"
                 [style.left.%]="taskOffset(row.task)"
-                [style.width.%]="taskWidth(row.task)"
-                [attr.aria-label]="row.task.name + ', ' + row.task.startDate + ' to ' + row.task.dueDate"
-                [title]="row.task.name + ' — drag to move; drag either end to resize.'"
+                [style.width.%]="row.task.isMilestone ? null : taskWidth(row.task)"
+                [attr.aria-label]="(row.task.isMilestone ? 'Milestone: ' : '') + row.task.name + ', ' + row.task.startDate + (row.task.isMilestone ? '' : ' to ' + row.task.dueDate)"
+                [title]="row.task.isMilestone ? row.task.name + ' — milestone' : row.task.name + ' — drag to move; drag either end to resize.'"
                 (pointerdown)="startTaskTimelineDrag($event, row.task, 'move')"
               >
                 <span class="bar-progress" [style.width.%]="row.task.progress"></span>
                 <span class="bar-label">{{ row.task.name }}</span>
                 <button
+                  *ngIf="!row.task.isMilestone"
                   class="task-resize-handle task-resize-handle-left"
                   type="button"
                   [attr.aria-label]="'Resize start date for ' + row.task.name"
@@ -378,6 +366,7 @@
                   (pointerdown)="startTaskTimelineDrag($event, row.task, 'resize-start')"
                 ></button>
                 <button
+                  *ngIf="!row.task.isMilestone"
                   class="task-resize-handle task-resize-handle-right"
                   type="button"
                   [attr.aria-label]="'Resize due date for ' + row.task.name"
@@ -417,6 +406,7 @@
             <tr *ngFor="let row of timelineTasks(); trackBy: trackTimelineTask">
               <td [class.subtask-name-cell]="row.depth">
                 <span class="subtask-prefix" *ngIf="row.depth">↳</span>
+                <span class="milestone-badge" *ngIf="row.task.isMilestone">Milestone</span>
                 {{ row.task.name }}
               </td>
               <td>{{ row.task.assignee || 'Unassigned' }}</td>
@@ -428,7 +418,7 @@
                 <div class="task-actions">
                   <button
                     class="add-subtask-button"
-                    *ngIf="!row.depth"
+                    *ngIf="!row.depth && !row.task.isMilestone"
                     type="button"
                     [disabled]="creatingSubtaskIds().has(row.task.id)"
                     [attr.aria-label]="'Add subtask to ' + row.task.name"
@@ -459,6 +449,7 @@
       <div class="timeline-legend">
         <span><i class="legend-dot progress-dot"></i> In progress</span>
         <span><i class="legend-dot complete-dot"></i> Complete</span>
+        <span><i class="legend-dot milestone-dot"></i> Milestone</span>
         <span><i class="legend-dot upcoming-dot"></i> Today</span>
         <span class="legend-hint">Drag bars to move them; drag their ends to resize dates. Drag the outer dots to create dependencies.</span>
       </div>

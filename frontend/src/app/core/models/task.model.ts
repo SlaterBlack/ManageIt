@@ -4,6 +4,7 @@ export interface Task {
   id: string;
   projectId: string;
   parentTaskId: string | null;
+  isMilestone: boolean;
   name: string;
   assignee: string;
   startDate: string;
@@ -17,6 +18,7 @@ export interface Task {
 export interface CreateTaskRequest {
   name: string;
   assignee: string;
+  isMilestone?: boolean;
   parentTaskId?: string | null;
   startDate: string;
   dueDate: string;

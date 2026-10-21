@@ -76,7 +76,7 @@ backend/
 
 The app shell provides separate `/overview`, `/projects`, and `/calendar` pages. Opening a project from the project list navigates to its calendar using the `project` query parameter.
 
-Calendar tasks can be nested one level deep as subtasks by choosing a parent task or using the **+** task action; new subtasks start with the parent's dates and can be edited from their **…** menu. Use **… → Edit task** to update task details. Drag task bars to move them on the timeline and drag either end to resize their dates; date changes are saved to the API, and parent/subtask date limits are enforced. Drag the outer right dependency handle onto another task to make the dragged task its prerequisite; use the outer left handle to make the dropped task the prerequisite. Dependency cycles and links between different projects are rejected, and links can be removed from the dependency list below the timeline.
+Tasks created from the Calendar form are top-level; use a task's **+** action to add a subtask, which starts with the parent's dates and can be edited from its **…** menu. Choose **+ Add milestone** to create a standalone single-date marker; milestones appear as diamonds and can participate in dependencies. Use **… → Edit task** to update task details. Drag task bars to move them on the timeline and drag either end to resize their dates; milestones move as a point and cannot be resized. Parent/subtask date limits are enforced. Drag the outer right dependency handle onto another task to make the dragged task its prerequisite; use the outer left handle to make the dropped task the prerequisite. Dependency cycles and links between different projects are rejected, and links can be removed from the dependency list below the timeline.
 
 Generate frontend components and services through Angular CLI:
 
@@ -99,7 +99,7 @@ npm run ng -- generate service core/services/example
 
 Project creation requires a unique three-digit `projectCode` and a `name`; `color` is an optional six-digit hex value that defaults to orange. Project updates accept `projectCode`, `name`, `description`, and `color`.
 
-Task creation requires a name and valid `startDate` / `dueDate` values (`YYYY-MM-DD`), with the due date on or after the start date. An optional `parentTaskId` creates a subtask whose date range must be inside its parent's; nesting beyond one subtask level is not supported. Dependency creation accepts `predecessorTaskId` and `successorTaskId` for tasks in the project; cycles, duplicate links, and self-links are rejected. Validation failures return a JSON `error` message.
+Task creation requires a name and valid `startDate` / `dueDate` values (`YYYY-MM-DD`), with the due date on or after the start date. Set `isMilestone: true` to create a standalone milestone with the same start and due date; milestones cannot be subtasks. An optional `parentTaskId` creates a subtask whose date range must be inside its parent's; nesting beyond one subtask level is not supported. Dependency creation accepts `predecessorTaskId` and `successorTaskId` for tasks and milestones in the project; cycles, duplicate links, and self-links are rejected. Validation failures return a JSON `error` message.
 
 ## Build
 
@@ -118,3 +118,5 @@ The backend uses `sequelize.sync({ alter: true })` only in development for this 
 For an existing production ManageIt database, run [`backend/migrations/20261021_add_project_code_and_color.sql`](./backend/migrations/20261021_add_project_code_and_color.sql) once before deploying the project-code/color backend. It assigns unused three-digit codes and applies the default orange to existing projects. Do not run this one-time migration against a database that already has these columns.
 
 For the task dependency and subtask schema, run [`backend/migrations/20261021_add_task_dependencies_and_subtasks.sql`](./backend/migrations/20261021_add_task_dependencies_and_subtasks.sql) against an existing production ManageIt database before deploying the feature. The script expects PostgreSQL's `gen_random_uuid()` function to be available.
+
+For milestone support, run [`backend/migrations/20261021_add_task_milestones.sql`](./backend/migrations/20261021_add_task_milestones.sql) against an existing production ManageIt database before deploying the feature.

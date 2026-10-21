@@ -55,21 +55,37 @@ export const createProjectTask = asyncHandler(
     if (!project) {
       throw new ApiError(404, 'Project not found.');
     }
-    const { name, assignee = '', startDate, dueDate, parentTaskId = null } =
-      req.body as {
+    const {
+      name,
+      assignee = '',
+      startDate,
+      dueDate,
+      isMilestone = false,
+      parentTaskId = null,
+    } = req.body as {
       name?: unknown;
       assignee?: unknown;
       startDate?: unknown;
       dueDate?: unknown;
+      isMilestone?: unknown;
       parentTaskId?: unknown;
     };
     if (typeof assignee !== 'string' || assignee.length > 120) {
       throw new ApiError(400, 'Assignee must be 120 characters or fewer.');
     }
+    if (typeof isMilestone !== 'boolean') {
+      throw new ApiError(400, 'Milestone must be a boolean value.');
+    }
     const validStart = validateDate(startDate, 'Start date');
     const validDue = validateDate(dueDate, 'Due date');
     if (validDue < validStart) {
       throw new ApiError(400, 'Due date must be on or after the start date.');
+    }
+    if (isMilestone && validStart !== validDue) {
+      throw new ApiError(400, 'Milestones must have the same start and due date.');
+    }
+    if (isMilestone && parentTaskId !== null) {
+      throw new ApiError(400, 'Milestones cannot be subtasks.');
     }
     let parentTask: Task | null = null;
     if (parentTaskId !== null) {
@@ -96,6 +112,7 @@ export const createProjectTask = asyncHandler(
     const task = await Task.create({
       projectId: project.id,
       parentTaskId: parentTask?.id ?? null,
+      isMilestone,
       name: validateTaskName(name),
       assignee: assignee.trim(),
       startDate: validStart,
@@ -162,6 +179,9 @@ export const updateTask = asyncHandler(async (req: Request, res: Response) => {
   const resultingDue = updates.dueDate ?? task.dueDate;
   if (resultingDue < resultingStart) {
     throw new ApiError(400, 'Due date must be on or after the start date.');
+  }
+  if (task.isMilestone && resultingStart !== resultingDue) {
+    throw new ApiError(400, 'Milestones must have the same start and due date.');
   }
 
   if (task.parentTaskId) {
