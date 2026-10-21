@@ -1,11 +1,15 @@
 import { createApp } from './app';
-import { connectDatabase, sequelize } from './config/database';
+import {
+  clockedinAccountsDatabase,
+  connectDatabases,
+  sequelize,
+} from './config/database';
 import { env } from './config/env';
 import './models';
 import { seedDemoProjectIfEmpty } from './models/seed';
 
 async function bootstrap(): Promise<void> {
-  await connectDatabase();
+  await connectDatabases();
   if (env.nodeEnv === 'development') {
     await sequelize.sync({ alter: true });
     await seedDemoProjectIfEmpty();
@@ -19,7 +23,15 @@ async function bootstrap(): Promise<void> {
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.on(signal, () => {
       server.close(() => {
-        void sequelize.close().then(() => process.exit(0));
+        void Promise.all([
+          sequelize.close(),
+          clockedinAccountsDatabase.close(),
+        ])
+          .then(() => process.exit(0))
+          .catch((error: unknown) => {
+            console.error('Failed to close database connections:', error);
+            process.exit(1);
+          });
       });
     });
   }

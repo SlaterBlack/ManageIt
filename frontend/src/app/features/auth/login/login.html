@@ -1,0 +1,42 @@
+<main class="login-page">
+  <section class="login-card card" aria-labelledby="login-title">
+    <a class="login-brand" routerLink="/projects">ManageIt</a>
+    <div class="eyebrow">Shared team project planning</div>
+    <h1 id="login-title">Sign in</h1>
+    <p class="login-description">
+      Use your existing ClockedIn account to continue.
+    </p>
+
+    <div class="login-error" *ngIf="errorMessage()" role="alert">
+      {{ errorMessage() }}
+    </div>
+
+    <form (ngSubmit)="submit()">
+      <label class="form-field">
+        Email
+        <input
+          type="email"
+          name="email"
+          [(ngModel)]="email"
+          autocomplete="username"
+          required
+        >
+      </label>
+      <label class="form-field">
+        Password
+        <input
+          type="password"
+          name="password"
+          [(ngModel)]="password"
+          autocomplete="current-password"
+          required
+        >
+      </label>
+      <button
+        class="btn btn-primary login-submit"
+        type="submit"
+        [disabled]="isSubmitting()"
+      >{{ isSubmitting() ? 'Signing in…' : 'Sign in' }}</button>
+    </form>
+  </section>
+</main>

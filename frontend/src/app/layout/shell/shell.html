@@ -1,9 +1,31 @@
 <header class="navbar">
-  <a class="navbar-brand" routerLink="/projects" aria-label="ManageIt projects">ManageIt</a>
+  <a
+    class="navbar-brand"
+    routerLink="/projects"
+    fragment="overview"
+    aria-label="ManageIt home"
+  >ManageIt</a>
   <nav class="navbar-links" aria-label="Main navigation">
-    <a routerLink="/projects" routerLinkActive="is-active">Projects</a>
+    <a
+      href="/projects#overview"
+      [class.is-active]="activeTab() === 'overview'"
+      (click)="navigateTo($event, 'overview')"
+    >Overview</a>
+    <a
+      href="/projects#projects"
+      [class.is-active]="activeTab() === 'projects'"
+      (click)="navigateTo($event, 'projects')"
+    >Projects</a>
+    <a
+      href="/projects#calendar"
+      [class.is-active]="activeTab() === 'calendar'"
+      (click)="navigateTo($event, 'calendar')"
+    >Calendar</a>
   </nav>
-  <div class="navbar-user">Shared team · everyone can access every project</div>
+  <div class="navbar-user">
+    <span class="navbar-username">{{ auth.currentUser()?.name || 'Team member' }}</span>
+    <button class="navbar-logout" type="button" (click)="logout()">Log out</button>
+  </div>
 </header>
 <main class="app-main">
   <router-outlet />

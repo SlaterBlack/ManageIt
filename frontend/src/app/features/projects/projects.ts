@@ -33,7 +33,6 @@ export class Projects {
   readonly showProjectForm = signal(false);
   readonly showTaskForm = signal(false);
   readonly viewMode = signal<'timeline' | 'list'>('timeline');
-  readonly activeNavigation = signal<'overview' | 'projects' | 'calendar'>('projects');
   readonly searchOpen = signal(false);
   readonly searchTerm = signal('');
   readonly notificationsOpen = signal(false);
@@ -137,7 +136,6 @@ export class Projects {
 
   selectProject(project: Project): void {
     this.selectedProjectId.set(project.id);
-    this.activeNavigation.set('projects');
     this.loadTasks(project.id);
   }
 
@@ -255,27 +253,8 @@ export class Projects {
     return colors[name.length % colors.length];
   }
 
-  navigate(section: 'overview' | 'projects' | 'calendar'): void {
-    this.activeNavigation.set(section);
-    if (section === 'calendar' || section === 'overview') {
-      this.viewMode.set('timeline');
-    }
-    const target =
-      section === 'projects'
-        ? '.section-heading'
-        : section === 'overview'
-          ? '.page-title-row'
-          : '.timeline-card';
-    requestAnimationFrame(() =>
-      document
-        .querySelector(target)
-        ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
-    );
-  }
-
   setViewMode(mode: 'timeline' | 'list'): void {
     this.viewMode.set(mode);
-    this.activeNavigation.set(mode === 'timeline' ? 'calendar' : 'projects');
   }
 
   toggleSearch(): void {
@@ -318,7 +297,6 @@ export class Projects {
   focusTask(task: Task): void {
     this.notificationsOpen.set(false);
     this.viewMode.set('timeline');
-    this.activeNavigation.set('calendar');
     requestAnimationFrame(() =>
       document.getElementById(`task-${task.id}`)?.scrollIntoView({
         behavior: 'smooth',
