@@ -1,10 +1,18 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  HostListener,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { forkJoin } from 'rxjs';
 import { Project } from '../../core/models/project.model';
 import { Task, TaskStatus } from '../../core/models/task.model';
+import { TaskDependency } from '../../core/models/task-dependency.model';
 import { ProjectsService } from '../../core/services/projects';
 import { TasksService } from '../../core/services/tasks';
 
@@ -13,6 +21,28 @@ interface TimelineDay {
   label: string;
   isMonday: boolean;
   isToday: boolean;
+}
+
+interface TimelineTask {
+  task: Task;
+  depth: number;
+}
+
+interface DependencyDrag {
+  taskId: string;
+  side: 'before' | 'after';
+}
+
+interface TaskTimelineDrag {
+  taskId: string;
+  mode: 'move' | 'resize-start' | 'resize-end';
+  startX: number;
+  deltaDays: number;
+}
+
+interface TaskDates {
+  startDate: string;
+  dueDate: string;
 }
 
 @Component({
@@ -30,6 +60,7 @@ export class Calendar {
 
   readonly projects = signal<Project[]>([]);
   readonly tasks = signal<Task[]>([]);
+  readonly dependencies = signal<TaskDependency[]>([]);
   readonly selectedProjectId = signal('');
   readonly loadingProjects = signal(true);
   readonly loadingTasks = signal(false);
@@ -42,6 +73,13 @@ export class Calendar {
   readonly moreActionsOpen = signal(false);
   readonly dayWidth = signal(20);
   readonly timelineDays = signal<TimelineDay[]>([]);
+  readonly dependencyDrag = signal<DependencyDrag | null>(null);
+  readonly dependencyDropTargetId = signal('');
+  readonly taskTimelineDrag = signal<TaskTimelineDrag | null>(null);
+  readonly editingTaskId = signal<string | null>(null);
+  readonly openTaskMenuId = signal<string | null>(null);
+  readonly savingTask = signal(false);
+  readonly creatingSubtaskIds = signal<ReadonlySet<string>>(new Set());
   readonly selectedProject = computed(() =>
     this.projects().find((project) => project.id === this.selectedProjectId()),
   );
@@ -56,6 +94,46 @@ export class Calendar {
     return this.tasks().filter((task) =>
       !query ||
       `${task.name} ${task.assignee}`.toLocaleLowerCase().includes(query),
+    );
+  });
+  readonly timelineTasks = computed<TimelineTask[]>(() => {
+    const tasks = this.tasks();
+    const query = this.searchTerm().trim().toLocaleLowerCase();
+    const matches = (task: Task): boolean =>
+      !query || `${task.name} ${task.assignee}`.toLocaleLowerCase().includes(query);
+    const childrenByParent = new Map<string, Task[]>();
+    for (const task of tasks) {
+      if (task.parentTaskId) {
+        const children = childrenByParent.get(task.parentTaskId) ?? [];
+        children.push(task);
+        childrenByParent.set(task.parentTaskId, children);
+      }
+    }
+    const sortByDate = (left: Task, right: Task): number =>
+      left.startDate.localeCompare(right.startDate) ||
+      left.name.localeCompare(right.name);
+    const roots = tasks.filter((task) => !task.parentTaskId).sort(sortByDate);
+    return roots.flatMap((parent) => {
+      const children = (childrenByParent.get(parent.id) ?? []).sort(sortByDate);
+      const parentMatches = matches(parent);
+      const matchingChildren = children.filter(matches);
+      if (query && !parentMatches && !matchingChildren.length) {
+        return [];
+      }
+      return [
+        { task: parent, depth: 0 },
+        ...children
+          .filter((task) => !query || parentMatches || matches(task))
+          .map((task) => ({ task, depth: 1 })),
+      ];
+    });
+  });
+  readonly visibleDependencies = computed(() => {
+    const visibleIds = new Set(this.timelineTasks().map(({ task }) => task.id));
+    return this.dependencies().filter(
+      (dependency) =>
+        visibleIds.has(dependency.predecessorTaskId) &&
+        visibleIds.has(dependency.successorTaskId),
     );
   });
   readonly upcomingTasks = computed(() => {
@@ -103,8 +181,15 @@ export class Calendar {
 
   taskName = '';
   taskAssignee = '';
+  taskParentId = '';
   taskStartDate = this.dateInput(new Date());
   taskDueDate = this.dateInput(new Date(Date.now() + 7 * 86400000));
+  editedTaskName = '';
+  editedTaskAssignee = '';
+  editedTaskStartDate = '';
+  editedTaskDueDate = '';
+  editedTaskProgress = 0;
+  editedTaskStatus: TaskStatus = 'not_started';
   private projectsLoaded = false;
   private requestedProjectId = '';
   private loadedTaskProjectId = '';
@@ -146,6 +231,7 @@ export class Calendar {
     localStorage.setItem(this.selectedProjectStorageKey, project.id);
     if (changed) {
       this.tasks.set([]);
+      this.dependencies.set([]);
       this.updateTimeline([]);
     }
     if (
@@ -185,8 +271,11 @@ export class Calendar {
     if (!projectId) return;
     this.loadingTasks.set(true);
     this.requestedTaskProjectId = projectId;
-    this.tasksApi.list(projectId).subscribe({
-      next: (tasks) => {
+    forkJoin({
+      tasks: this.tasksApi.list(projectId),
+      dependencies: this.tasksApi.listDependencies(projectId),
+    }).subscribe({
+      next: ({ tasks, dependencies }) => {
         if (
           this.selectedProjectId() !== projectId ||
           this.requestedTaskProjectId !== projectId
@@ -194,6 +283,7 @@ export class Calendar {
           return;
         }
         this.tasks.set(tasks);
+        this.dependencies.set(dependencies);
         this.loadingTasks.set(false);
         this.errorMessage.set('');
         this.loadedTaskProjectId = projectId;
@@ -223,6 +313,7 @@ export class Calendar {
       .create(projectId, {
         name: this.taskName.trim(),
         assignee: this.taskAssignee.trim(),
+        parentTaskId: this.taskParentId || null,
         startDate: this.taskStartDate,
         dueDate: this.taskDueDate,
       })
@@ -236,6 +327,7 @@ export class Calendar {
           this.updateTimeline(this.tasks());
           this.taskName = '';
           this.taskAssignee = '';
+          this.taskParentId = '';
           this.showTaskForm.set(false);
           this.errorMessage.set('');
         },
@@ -249,26 +341,393 @@ export class Calendar {
       });
   }
 
-  advanceTask(task: Task): void {
-    const progress = task.progress >= 100 ? 0 : Math.min(100, task.progress + 25);
-    const status: TaskStatus =
-      progress === 100
-        ? 'complete'
-        : progress > 0
-          ? 'in_progress'
-          : 'not_started';
-    this.tasksApi.update(task.id, { progress, status }).subscribe({
-      next: (updated) => {
-        this.tasks.update((tasks) =>
-          tasks.map((item) => (item.id === updated.id ? updated : item)),
+  selectTaskParent(parentTaskId: string): void {
+    this.taskParentId = parentTaskId;
+    const parent = this.tasks().find((task) => task.id === parentTaskId);
+    if (parent) {
+      this.taskStartDate = parent.startDate;
+      this.taskDueDate = parent.dueDate;
+    }
+  }
+
+  addSubtask(parent: Task): void {
+    if (parent.parentTaskId || this.creatingSubtaskIds().has(parent.id)) {
+      return;
+    }
+    this.openTaskMenuId.set(null);
+    this.creatingSubtaskIds.update((ids) => new Set(ids).add(parent.id));
+    this.tasksApi
+      .create(this.selectedProjectId(), {
+        name: 'Subtask',
+        assignee: '',
+        parentTaskId: parent.id,
+        startDate: parent.startDate,
+        dueDate: parent.dueDate,
+      })
+      .subscribe({
+        next: (task) => {
+          this.tasks.update((tasks) => [...tasks, task]);
+          this.updateTimeline(this.tasks());
+          this.creatingSubtaskIds.update((ids) => {
+            const nextIds = new Set(ids);
+            nextIds.delete(parent.id);
+            return nextIds;
+          });
+          this.errorMessage.set('');
+        },
+        error: (error: unknown) => {
+          this.creatingSubtaskIds.update((ids) => {
+            const nextIds = new Set(ids);
+            nextIds.delete(parent.id);
+            return nextIds;
+          });
+          this.errorMessage.set(
+            this.apiError(error, 'Could not add a subtask. Please try again.'),
+          );
+        },
+      });
+  }
+
+  canCreateTask(): boolean {
+    const parent = this.tasks().find((task) => task.id === this.taskParentId);
+    return (
+      Boolean(this.taskName.trim()) &&
+      this.taskStartDate <= this.taskDueDate &&
+      (!parent ||
+        (this.taskStartDate >= parent.startDate &&
+          this.taskDueDate <= parent.dueDate))
+    );
+  }
+
+  startDependencyDrag(
+    event: PointerEvent,
+    task: Task,
+    side: 'before' | 'after',
+  ): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.dependencyDrag.set({ taskId: task.id, side });
+    this.dependencyDropTargetId.set('');
+  }
+
+  startTaskTimelineDrag(
+    event: PointerEvent,
+    task: Task,
+    mode: TaskTimelineDrag['mode'],
+  ): void {
+    if (event.button !== 0 || this.dependencyDrag()) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.taskTimelineDrag.set({
+      taskId: task.id,
+      mode,
+      startX: event.clientX,
+      deltaDays: 0,
+    });
+  }
+
+  @HostListener('document:pointermove', ['$event'])
+  updateDependencyDropTarget(event: PointerEvent): void {
+    const taskDrag = this.taskTimelineDrag();
+    if (taskDrag) {
+      const deltaDays = Math.round(
+        (event.clientX - taskDrag.startX) / this.dayWidth(),
+      );
+      this.taskTimelineDrag.set({ ...taskDrag, deltaDays });
+      return;
+    }
+    if (!this.dependencyDrag()) {
+      return;
+    }
+    const target = document.elementFromPoint(event.clientX, event.clientY);
+    const row = target?.closest<HTMLElement>('.calendar-task-row');
+    this.dependencyDropTargetId.set(row?.dataset['taskId'] ?? '');
+  }
+
+  @HostListener('document:pointerup', ['$event'])
+  finishDependencyDrag(event: PointerEvent): void {
+    const taskDrag = this.taskTimelineDrag();
+    if (taskDrag) {
+      const task = this.tasks().find((item) => item.id === taskDrag.taskId);
+      const dates = task ? this.taskDatesFor(task) : null;
+      this.taskTimelineDrag.set(null);
+      if (
+        task &&
+        dates &&
+        (dates.startDate !== task.startDate || dates.dueDate !== task.dueDate)
+      ) {
+        this.saveTaskDates(task, dates);
+      }
+      return;
+    }
+    const drag = this.dependencyDrag();
+    const dropTargetId = this.dependencyDropTargetId();
+    this.dependencyDrag.set(null);
+    this.dependencyDropTargetId.set('');
+    if (!drag) {
+      return;
+    }
+
+    const eventTarget =
+      event.target instanceof Element
+        ? event.target.closest<HTMLElement>('.calendar-task-row')
+        : null;
+    const targetId = dropTargetId || eventTarget?.dataset['taskId'];
+    if (!targetId || targetId === drag.taskId) {
+      return;
+    }
+    const predecessorTaskId =
+      drag.side === 'after' ? drag.taskId : targetId;
+    const successorTaskId =
+      drag.side === 'after' ? targetId : drag.taskId;
+    this.createDependency(predecessorTaskId, successorTaskId);
+  }
+
+  @HostListener('document:pointercancel')
+  clearDependencyDrag(): void {
+    this.dependencyDrag.set(null);
+    this.dependencyDropTargetId.set('');
+    this.taskTimelineDrag.set(null);
+  }
+
+  toggleTaskMenu(taskId: string): void {
+    this.openTaskMenuId.update((current) =>
+      current === taskId ? null : taskId,
+    );
+  }
+
+  startEditingTask(task: Task): void {
+    this.openTaskMenuId.set(null);
+    this.editingTaskId.set(task.id);
+    this.editedTaskName = task.name;
+    this.editedTaskAssignee = task.assignee;
+    this.editedTaskStartDate = task.startDate;
+    this.editedTaskDueDate = task.dueDate;
+    this.editedTaskProgress = task.progress;
+    this.editedTaskStatus = task.status;
+  }
+
+  cancelTaskEdit(): void {
+    this.editingTaskId.set(null);
+  }
+
+  canSaveTaskEdit(): boolean {
+    const task = this.tasks().find((item) => item.id === this.editingTaskId());
+    const bounds = task ? this.taskDateBounds(task) : {};
+    return (
+      Boolean(this.editedTaskName.trim()) &&
+      this.editedTaskName.trim().length <= 120 &&
+      this.editedTaskAssignee.trim().length <= 120 &&
+      Boolean(this.editedTaskStartDate) &&
+      Boolean(this.editedTaskDueDate) &&
+      this.editedTaskStartDate <= this.editedTaskDueDate &&
+      (!bounds.minimumStart ||
+        this.editedTaskStartDate >= bounds.minimumStart) &&
+      (!bounds.maximumStart ||
+        this.editedTaskStartDate <= bounds.maximumStart) &&
+      (!bounds.minimumDue || this.editedTaskDueDate >= bounds.minimumDue) &&
+      (!bounds.maximumDue || this.editedTaskDueDate <= bounds.maximumDue) &&
+      Number.isInteger(this.editedTaskProgress) &&
+      this.editedTaskProgress >= 0 &&
+      this.editedTaskProgress <= 100 &&
+      !this.savingTask()
+    );
+  }
+
+  saveTaskEdit(): void {
+    const taskId = this.editingTaskId();
+    if (!taskId || !this.canSaveTaskEdit()) {
+      return;
+    }
+    this.savingTask.set(true);
+    this.tasksApi
+      .update(taskId, {
+        name: this.editedTaskName.trim(),
+        assignee: this.editedTaskAssignee.trim(),
+        startDate: this.editedTaskStartDate,
+        dueDate: this.editedTaskDueDate,
+        progress: this.editedTaskProgress,
+        status: this.editedTaskStatus,
+      })
+      .subscribe({
+        next: (updated) => {
+          this.tasks.update((tasks) =>
+            tasks.map((task) => (task.id === taskId ? updated : task)),
+          );
+          this.updateTimeline(this.tasks());
+          this.editingTaskId.set(null);
+          this.savingTask.set(false);
+          this.errorMessage.set('');
+        },
+        error: (error: unknown) => {
+          this.savingTask.set(false);
+          this.errorMessage.set(
+            this.apiError(error, 'Could not update task details. Please try again.'),
+          );
+        },
+      });
+  }
+
+  @HostListener('document:click', ['$event'])
+  closeTaskMenuOnOutsideClick(event: MouseEvent): void {
+    if (
+      event.target instanceof Element &&
+      !event.target.closest('.task-actions')
+    ) {
+      this.openTaskMenuId.set(null);
+    }
+  }
+
+  taskDatesFor(task: Task): TaskDates {
+    const drag = this.taskTimelineDrag();
+    if (!drag || drag.taskId !== task.id || drag.deltaDays === 0) {
+      return { startDate: task.startDate, dueDate: task.dueDate };
+    }
+
+    const range = this.taskDateBounds(task);
+    if (drag.mode === 'move') {
+      const minimumShift = range.minimumStart
+        ? this.dayDifference(task.startDate, range.minimumStart)
+        : Number.NEGATIVE_INFINITY;
+      const minimumDueShift = range.minimumDue
+        ? this.dayDifference(task.dueDate, range.minimumDue)
+        : Number.NEGATIVE_INFINITY;
+      const maximumStartShift = range.maximumStart
+        ? this.dayDifference(task.startDate, range.maximumStart)
+        : Number.POSITIVE_INFINITY;
+      const maximumDueShift = range.maximumDue
+        ? this.dayDifference(task.dueDate, range.maximumDue)
+        : Number.POSITIVE_INFINITY;
+      const shift = this.clamp(
+        drag.deltaDays,
+        Math.max(minimumShift, minimumDueShift),
+        Math.min(maximumStartShift, maximumDueShift),
+      );
+      return {
+        startDate: this.shiftDate(task.startDate, shift),
+        dueDate: this.shiftDate(task.dueDate, shift),
+      };
+    }
+    if (drag.mode === 'resize-start') {
+      const latestStart = [
+        task.dueDate,
+        range.maximumStart ?? task.dueDate,
+      ].sort()[0];
+      const startDate = this.shiftDate(
+        task.startDate,
+        this.clamp(
+          drag.deltaDays,
+          range.minimumStart
+            ? this.dayDifference(task.startDate, range.minimumStart)
+            : Number.NEGATIVE_INFINITY,
+          this.dayDifference(task.startDate, latestStart),
+        ),
+      );
+      return { startDate, dueDate: task.dueDate };
+    }
+
+    const earliestDue = [
+      task.startDate,
+      range.minimumDue ?? task.startDate,
+    ].sort().at(-1)!;
+    const dueDate = this.shiftDate(
+      task.dueDate,
+      this.clamp(
+        drag.deltaDays,
+        this.dayDifference(task.dueDate, earliestDue),
+        range.maximumDue
+          ? this.dayDifference(task.dueDate, range.maximumDue)
+          : Number.POSITIVE_INFINITY,
+      ),
+    );
+    return { startDate: task.startDate, dueDate };
+  }
+
+  createDependency(predecessorTaskId: string, successorTaskId: string): void {
+    const projectId = this.selectedProjectId();
+    if (!projectId) {
+      return;
+    }
+    this.tasksApi
+      .createDependency(projectId, predecessorTaskId, successorTaskId)
+      .subscribe({
+        next: (dependency) => {
+          this.dependencies.update((dependencies) => [...dependencies, dependency]);
+          this.errorMessage.set('');
+        },
+        error: (error: unknown) => {
+          this.errorMessage.set(
+            this.apiError(
+              error,
+              'Could not link these tasks. Check the dependency and try again.',
+            ),
+          );
+        },
+      });
+  }
+
+  removeDependency(dependency: TaskDependency): void {
+    const projectId = this.selectedProjectId();
+    if (!projectId) {
+      return;
+    }
+    this.tasksApi.deleteDependency(projectId, dependency.id).subscribe({
+      next: () => {
+        this.dependencies.update((dependencies) =>
+          dependencies.filter((item) => item.id !== dependency.id),
         );
         this.errorMessage.set('');
       },
       error: (error: unknown) =>
         this.errorMessage.set(
-          this.apiError(error, 'Could not update task progress. Please try again.'),
+          this.apiError(error, 'Could not remove this dependency. Please try again.'),
         ),
     });
+  }
+
+  taskNameFor(id: string): string {
+    return this.tasks().find((task) => task.id === id)?.name ?? 'Unknown task';
+  }
+
+  dependencyPath(dependency: TaskDependency): string {
+    const predecessor = this.tasks().find(
+      (task) => task.id === dependency.predecessorTaskId,
+    );
+    const successor = this.tasks().find(
+      (task) => task.id === dependency.successorTaskId,
+    );
+    if (!predecessor || !successor) {
+      return '';
+    }
+    const rows = this.timelineTasks();
+    const sourceRow = rows.findIndex(
+      ({ task }) => task.id === predecessor.id,
+    );
+    const targetRow = rows.findIndex(({ task }) => task.id === successor.id);
+    if (sourceRow < 0 || targetRow < 0) {
+      return '';
+    }
+    const timelineWidth = this.timelineWidth();
+    const startX = ((this.taskOffset(predecessor) + this.taskWidth(predecessor)) / 100) * timelineWidth;
+    const endX = (this.taskOffset(successor) / 100) * timelineWidth;
+    const startY = sourceRow * 52 + 26;
+    const endY = targetRow * 52 + 26;
+    const curve = Math.max(24, Math.abs(endX - startX) * 0.45);
+    return `M ${startX} ${startY} C ${startX + curve} ${startY}, ${endX - curve} ${endY}, ${endX} ${endY}`;
+  }
+
+  timelineWidth(): number {
+    return this.timelineDays().length * this.dayWidth();
+  }
+
+  timelineHeight(): number {
+    return Math.max(this.timelineTasks().length * 52, 1);
+  }
+
+  trackTimelineTask(_index: number, row: TimelineTask): string {
+    return row.task.id;
   }
 
   setViewMode(mode: 'timeline' | 'list'): void {
@@ -358,14 +817,16 @@ export class Calendar {
   taskOffset(task: Task): number {
     const days = this.timelineDays();
     if (!days.length) return 0;
-    return Math.max(0, (this.dayIndex(task.startDate) / days.length) * 100);
+    const dates = this.taskDatesFor(task);
+    return Math.max(0, (this.dayIndex(dates.startDate) / days.length) * 100);
   }
 
   taskWidth(task: Task): number {
     const days = this.timelineDays();
     if (!days.length) return 0;
-    const start = this.dayIndex(task.startDate);
-    const end = this.dayIndex(task.dueDate);
+    const dates = this.taskDatesFor(task);
+    const start = this.dayIndex(dates.startDate);
+    const end = this.dayIndex(dates.dueDate);
     return Math.max(2, (Math.max(1, end - start + 1) / days.length) * 100);
   }
 
@@ -407,6 +868,7 @@ export class Calendar {
     this.loadedTaskProjectId = '';
     this.requestedTaskProjectId = '';
     this.tasks.set([]);
+    this.dependencies.set([]);
     this.loadingTasks.set(false);
     this.updateTimeline([]);
   }
@@ -443,6 +905,85 @@ export class Calendar {
     const first = new Date(days[0].date);
     const target = new Date(`${value}T00:00:00`);
     return Math.max(0, Math.round((target.getTime() - first.getTime()) / 86400000));
+  }
+
+  private taskDateBounds(task: Task): {
+    minimumStart?: string;
+    maximumStart?: string;
+    minimumDue?: string;
+    maximumDue?: string;
+  } {
+    if (task.parentTaskId) {
+      const parent = this.tasks().find((item) => item.id === task.parentTaskId);
+      return {
+        minimumStart: parent?.startDate,
+        maximumDue: parent?.dueDate,
+      };
+    }
+
+    const subtasks = this.tasks().filter(
+      (item) => item.parentTaskId === task.id,
+    );
+    if (!subtasks.length) {
+      return {};
+    }
+    return {
+      maximumStart: subtasks
+        .map((subtask) => subtask.startDate)
+        .sort()[0],
+      minimumDue: subtasks
+        .map((subtask) => subtask.dueDate)
+        .sort()
+        .at(-1),
+    };
+  }
+
+  private saveTaskDates(task: Task, dates: TaskDates): void {
+    const previousTasks = this.tasks();
+    this.tasks.update((tasks) =>
+      tasks.map((item) =>
+        item.id === task.id ? { ...item, ...dates } : item,
+      ),
+    );
+    this.updateTimeline(this.tasks());
+    this.tasksApi
+      .update(task.id, dates)
+      .subscribe({
+        next: (updated) => {
+          this.tasks.update((tasks) =>
+            tasks.map((item) => (item.id === updated.id ? updated : item)),
+          );
+          this.updateTimeline(this.tasks());
+          this.errorMessage.set('');
+        },
+        error: (error: unknown) => {
+          this.tasks.set(previousTasks);
+          this.updateTimeline(previousTasks);
+          this.errorMessage.set(
+            this.apiError(
+              error,
+              'Could not update the task dates. Check the task and subtask date ranges.',
+            ),
+          );
+        },
+      });
+  }
+
+  private dayDifference(from: string, to: string): number {
+    return (
+      (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) /
+      86400000
+    );
+  }
+
+  private shiftDate(value: string, days: number): string {
+    const date = new Date(`${value}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+  }
+
+  private clamp(value: number, minimum: number, maximum: number): number {
+    return Math.min(Math.max(value, minimum), maximum);
   }
 
   private dateInput(date: Date): string {

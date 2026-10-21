@@ -113,16 +113,93 @@
         >
       </label>
       <label class="task-field">
+        Parent task
+        <select
+          name="taskParent"
+          [ngModel]="taskParentId"
+          (ngModelChange)="selectTaskParent($event)"
+        >
+          <option value="">No parent task</option>
+          <option *ngFor="let parent of tasks()" [value]="parent.id" [disabled]="parent.parentTaskId">
+            {{ parent.name }}
+          </option>
+        </select>
+      </label>
+      <label class="task-field">
         Start date
-        <input type="date" name="taskStartDate" [(ngModel)]="taskStartDate" required>
+        <input
+          type="date"
+          name="taskStartDate"
+          [(ngModel)]="taskStartDate"
+          [attr.min]="tasks().find(task => task.id === taskParentId)?.startDate || null"
+          [attr.max]="tasks().find(task => task.id === taskParentId)?.dueDate || null"
+          required
+        >
       </label>
       <label class="task-field">
         Due date
-        <input type="date" name="taskDueDate" [(ngModel)]="taskDueDate" required>
+        <input
+          type="date"
+          name="taskDueDate"
+          [(ngModel)]="taskDueDate"
+          [attr.min]="tasks().find(task => task.id === taskParentId)?.startDate || null"
+          [attr.max]="tasks().find(task => task.id === taskParentId)?.dueDate || null"
+          required
+        >
       </label>
       <div class="task-form-actions">
         <button class="btn btn-secondary" type="button" (click)="toggleTaskForm()">Cancel</button>
-        <button class="btn btn-primary" type="submit" [disabled]="!taskName.trim() || taskStartDate > taskDueDate">Add task</button>
+        <button class="btn btn-primary" type="submit" [disabled]="!canCreateTask()">Add task</button>
+      </div>
+    </form>
+
+    <form class="task-form task-edit-form card" *ngIf="editingTaskId()" (ngSubmit)="saveTaskEdit()">
+      <div class="task-edit-heading">
+        <div>
+          <div class="eyebrow">Task details</div>
+          <strong>Edit task</strong>
+        </div>
+        <button
+          class="icon-button"
+          type="button"
+          aria-label="Close task editor"
+          (click)="cancelTaskEdit()"
+          [disabled]="savingTask()"
+        >×</button>
+      </div>
+      <label class="task-field">
+        Task name
+        <input type="text" name="editedTaskName" [(ngModel)]="editedTaskName" maxlength="120" required>
+      </label>
+      <label class="task-field">
+        Assignee
+        <input type="text" name="editedTaskAssignee" [(ngModel)]="editedTaskAssignee" maxlength="120">
+      </label>
+      <label class="task-field">
+        Start date
+        <input type="date" name="editedTaskStartDate" [(ngModel)]="editedTaskStartDate" required>
+      </label>
+      <label class="task-field">
+        Due date
+        <input type="date" name="editedTaskDueDate" [(ngModel)]="editedTaskDueDate" required>
+      </label>
+      <label class="task-field">
+        Progress
+        <input type="number" name="editedTaskProgress" [(ngModel)]="editedTaskProgress" min="0" max="100" step="1" required>
+      </label>
+      <label class="task-field">
+        Status
+        <select name="editedTaskStatus" [(ngModel)]="editedTaskStatus">
+          <option value="not_started">Not started</option>
+          <option value="in_progress">In progress</option>
+          <option value="complete">Complete</option>
+        </select>
+      </label>
+      <div class="task-edit-actions task-form-actions">
+        <button class="btn btn-secondary" type="button" (click)="cancelTaskEdit()" [disabled]="savingTask()">Cancel</button>
+        <button class="btn btn-primary" type="submit" [disabled]="!canSaveTaskEdit()">
+          {{ savingTask() ? 'Saving…' : 'Save changes' }}
+        </button>
       </div>
     </form>
 
@@ -175,15 +252,48 @@
           [style.--day-width.px]="dayWidth()"
         >
           <div class="task-column">
-            <div class="column-header">TASKS <span>{{ visibleTasks().length }} items</span></div>
-            <ng-container *ngIf="visibleTasks().length; else noTimelineTasks">
-              <div class="task-row" *ngFor="let task of visibleTasks(); trackBy: trackTask">
-                <span class="task-status" [class.active]="task.status === 'in_progress'" [class.done]="task.status === 'complete'">
-                  {{ task.status === 'complete' ? '✓' : '' }}
+            <div class="column-header">TASKS <span>{{ timelineTasks().length }} items</span></div>
+            <ng-container *ngIf="timelineTasks().length; else noTimelineTasks">
+              <div
+                class="task-row"
+                *ngFor="let row of timelineTasks(); trackBy: trackTimelineTask"
+                [class.subtask-row]="row.depth > 0"
+                [style.--task-depth]="row.depth"
+              >
+                <span class="task-status" [class.active]="row.task.status === 'in_progress'" [class.done]="row.task.status === 'complete'">
+                  {{ row.task.status === 'complete' ? '✓' : '' }}
                 </span>
                 <div class="task-meta">
-                  <span class="task-name" [title]="task.name">{{ task.name }}</span>
-                  <span class="assignee">{{ task.assignee || 'Unassigned' }}</span>
+                  <span class="task-name" [title]="row.task.name">
+                    <span class="subtask-prefix" *ngIf="row.depth">↳</span>
+                    {{ row.task.name }}
+                  </span>
+                  <span class="assignee">{{ row.task.assignee || 'Unassigned' }}</span>
+                </div>
+                <div class="task-actions">
+                  <button
+                    class="add-subtask-button"
+                    *ngIf="!row.depth"
+                    type="button"
+                    [disabled]="creatingSubtaskIds().has(row.task.id)"
+                    [attr.aria-label]="'Add subtask to ' + row.task.name"
+                    title="Add generic subtask"
+                    (click)="addSubtask(row.task)"
+                  >+</button>
+                  <div class="task-menu">
+                    <button
+                      class="icon-button task-menu-trigger"
+                      type="button"
+                      [attr.aria-label]="'More options for ' + row.task.name"
+                      [attr.aria-expanded]="openTaskMenuId() === row.task.id"
+                      aria-haspopup="menu"
+                      title="More task options"
+                      (click)="toggleTaskMenu(row.task.id)"
+                    >…</button>
+                    <div class="actions-menu" *ngIf="openTaskMenuId() === row.task.id" role="menu">
+                      <button type="button" role="menuitem" (click)="startEditingTask(row.task)">Edit task</button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </ng-container>
@@ -209,23 +319,90 @@
                 >{{ day.label }}</span>
               </div>
             </div>
-            <div class="calendar-task-row" *ngFor="let task of visibleTasks(); trackBy: trackTask" [id]="'task-' + task.id">
+            <svg
+              class="dependency-layer"
+              *ngIf="visibleDependencies().length"
+              [attr.viewBox]="'0 0 ' + timelineWidth() + ' ' + timelineHeight()"
+              [attr.width]="timelineWidth()"
+              [attr.height]="timelineHeight()"
+              aria-hidden="true"
+            >
+              <defs>
+                <marker
+                  id="dependency-arrow"
+                  markerWidth="8"
+                  markerHeight="8"
+                  refX="7"
+                  refY="4"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path d="M 0 0 L 8 4 L 0 8 z"></path>
+                </marker>
+              </defs>
+              <path
+                class="dependency-path"
+                *ngFor="let dependency of visibleDependencies()"
+                [attr.d]="dependencyPath(dependency)"
+                marker-end="url(#dependency-arrow)"
+              ></path>
+            </svg>
+            <div
+              class="calendar-task-row"
+              *ngFor="let row of timelineTasks(); trackBy: trackTimelineTask"
+              [class.subtask-row]="row.depth > 0"
+              [class.dependency-drop-ready]="dependencyDropTargetId() === row.task.id"
+              [style.--task-depth]="row.depth"
+              [id]="'task-' + row.task.id"
+              [attr.data-task-id]="row.task.id"
+            >
               <span class="day-cell" *ngFor="let day of timelineDays()" [class.week-start]="day.isMonday"></span>
-              <button
+              <div
                 class="task-bar"
-                type="button"
-                [class.bar-complete]="task.status === 'complete'"
-                [style.left.%]="taskOffset(task)"
-                [style.width.%]="taskWidth(task)"
-                [attr.aria-label]="task.name + ', ' + task.progress + '% complete'"
-                [title]="task.name + ' — ' + task.progress + '% complete. Click to update progress.'"
-                (click)="advanceTask(task)"
+                role="group"
+                [class.bar-complete]="row.task.status === 'complete'"
+                [class.bar-subtask]="row.depth > 0"
+                [style.left.%]="taskOffset(row.task)"
+                [style.width.%]="taskWidth(row.task)"
+                [attr.aria-label]="row.task.name + ', ' + row.task.startDate + ' to ' + row.task.dueDate"
+                [title]="row.task.name + ' — drag to move; drag either end to resize.'"
+                (pointerdown)="startTaskTimelineDrag($event, row.task, 'move')"
               >
-                <span class="bar-progress" [style.width.%]="task.progress"></span>
-                <span class="bar-label">{{ task.name }}</span>
-              </button>
+                <span class="bar-progress" [style.width.%]="row.task.progress"></span>
+                <span class="bar-label">{{ row.task.name }}</span>
+                <button
+                  class="task-resize-handle task-resize-handle-left"
+                  type="button"
+                  [attr.aria-label]="'Resize start date for ' + row.task.name"
+                  title="Drag to change start date"
+                  (pointerdown)="startTaskTimelineDrag($event, row.task, 'resize-start')"
+                ></button>
+                <button
+                  class="task-resize-handle task-resize-handle-right"
+                  type="button"
+                  [attr.aria-label]="'Resize due date for ' + row.task.name"
+                  title="Drag to change due date"
+                  (pointerdown)="startTaskTimelineDrag($event, row.task, 'resize-end')"
+                ></button>
+                <button
+                  class="dependency-handle dependency-handle-left"
+                  type="button"
+                  [attr.aria-label]="'Drag left handle to make another task a prerequisite of ' + row.task.name"
+                  title="Drag left: the dropped task must come first"
+                  (click)="$event.stopPropagation()"
+                  (pointerdown)="startDependencyDrag($event, row.task, 'before')"
+                ></button>
+                <button
+                  class="dependency-handle dependency-handle-right"
+                  type="button"
+                  [attr.aria-label]="'Drag right handle to make ' + row.task.name + ' a prerequisite of another task'"
+                  title="Drag right: this task must come first"
+                  (click)="$event.stopPropagation()"
+                  (pointerdown)="startDependencyDrag($event, row.task, 'after')"
+                ></button>
+              </div>
             </div>
-            <div class="calendar-empty" *ngIf="!visibleTasks().length"></div>
+            <div class="calendar-empty" *ngIf="!timelineTasks().length"></div>
             <div class="today-line" *ngIf="todayOffset() >= 0" [style.left.%]="todayOffset()"></div>
           </div>
         </div>
@@ -234,18 +411,47 @@
       <div class="list-view" *ngIf="!loadingTasks() && viewMode() === 'list'">
         <table>
           <thead>
-            <tr><th>Task</th><th>Assignee</th><th>Start</th><th>Due</th><th>Status</th><th>Progress</th></tr>
+            <tr><th>Task</th><th>Assignee</th><th>Start</th><th>Due</th><th>Status</th><th>Progress</th><th>Actions</th></tr>
           </thead>
           <tbody>
-            <tr *ngFor="let task of visibleTasks(); trackBy: trackTask">
-              <td>{{ task.name }}</td>
-              <td>{{ task.assignee || 'Unassigned' }}</td>
-              <td>{{ task.startDate | date:'mediumDate' }}</td>
-              <td>{{ task.dueDate | date:'mediumDate' }}</td>
-              <td><span class="status-label" [class.done]="task.status === 'complete'">{{ task.status.replace('_', ' ') }}</span></td>
-              <td><button class="progress-button" type="button" (click)="advanceTask(task)">{{ task.progress }}% · Update</button></td>
+            <tr *ngFor="let row of timelineTasks(); trackBy: trackTimelineTask">
+              <td [class.subtask-name-cell]="row.depth">
+                <span class="subtask-prefix" *ngIf="row.depth">↳</span>
+                {{ row.task.name }}
+              </td>
+              <td>{{ row.task.assignee || 'Unassigned' }}</td>
+              <td>{{ row.task.startDate | date:'mediumDate' }}</td>
+              <td>{{ row.task.dueDate | date:'mediumDate' }}</td>
+              <td><span class="status-label" [class.done]="row.task.status === 'complete'">{{ row.task.status.replace('_', ' ') }}</span></td>
+              <td>{{ row.task.progress }}%</td>
+              <td>
+                <div class="task-actions">
+                  <button
+                    class="add-subtask-button"
+                    *ngIf="!row.depth"
+                    type="button"
+                    [disabled]="creatingSubtaskIds().has(row.task.id)"
+                    [attr.aria-label]="'Add subtask to ' + row.task.name"
+                    title="Add generic subtask"
+                    (click)="addSubtask(row.task)"
+                  >+</button>
+                  <div class="task-menu">
+                    <button
+                      class="icon-button task-menu-trigger"
+                      type="button"
+                      [attr.aria-label]="'More options for ' + row.task.name"
+                      [attr.aria-expanded]="openTaskMenuId() === row.task.id"
+                      aria-haspopup="menu"
+                      (click)="toggleTaskMenu(row.task.id)"
+                    >…</button>
+                    <div class="actions-menu" *ngIf="openTaskMenuId() === row.task.id" role="menu">
+                      <button type="button" role="menuitem" (click)="startEditingTask(row.task)">Edit task</button>
+                    </div>
+                  </div>
+                </div>
+              </td>
             </tr>
-            <tr *ngIf="!visibleTasks().length"><td colspan="6">{{ emptyTaskMessage() }}</td></tr>
+            <tr *ngIf="!timelineTasks().length"><td colspan="7">{{ emptyTaskMessage() }}</td></tr>
           </tbody>
         </table>
       </div>
@@ -254,7 +460,18 @@
         <span><i class="legend-dot progress-dot"></i> In progress</span>
         <span><i class="legend-dot complete-dot"></i> Complete</span>
         <span><i class="legend-dot upcoming-dot"></i> Today</span>
-        <span class="legend-hint">Select a task bar to update its progress.</span>
+        <span class="legend-hint">Drag bars to move them; drag their ends to resize dates. Drag the outer dots to create dependencies.</span>
+      </div>
+      <div class="dependency-list" *ngIf="dependencies().length">
+        <strong>Dependencies</strong>
+        <span class="dependency-chip" *ngFor="let dependency of dependencies()">
+          <span>{{ taskNameFor(dependency.predecessorTaskId) }} → {{ taskNameFor(dependency.successorTaskId) }}</span>
+          <button
+            type="button"
+            [attr.aria-label]="'Remove dependency from ' + taskNameFor(dependency.predecessorTaskId) + ' to ' + taskNameFor(dependency.successorTaskId)"
+            (click)="removeDependency(dependency)"
+          >×</button>
+        </span>
       </div>
     </section>
   </ng-container>

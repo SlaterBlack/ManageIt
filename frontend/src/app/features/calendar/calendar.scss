@@ -106,6 +106,18 @@
     color: var(--color-text);
     font-size: 12px;
   }
+
+  select {
+    width: 100%;
+    min-width: 0;
+    min-height: 38px;
+    padding: 7px 9px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: 12px;
+  }
 }
 
 .icon-button {
@@ -340,6 +352,18 @@
   padding: var(--space-md);
 }
 
+.task-edit-heading {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.task-edit-actions {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+}
+
 .task-field {
   display: grid;
   gap: 5px;
@@ -347,7 +371,8 @@
   font-size: 11px;
   font-weight: 600;
 
-  input {
+  input,
+  select {
     width: 100%;
     min-width: 0;
     min-height: 38px;
@@ -600,11 +625,18 @@
 
 .task-row {
   display: flex;
+  position: relative;
+  height: 52px;
   min-height: 52px;
+  box-sizing: border-box;
   align-items: center;
   gap: 9px;
-  padding: 0 12px;
+  padding: 0 12px 0 calc(12px + var(--task-depth, 0) * 18px);
   border-bottom: 1px solid var(--color-border);
+
+  &.subtask-row {
+    background: color-mix(in srgb, var(--color-primary-light) 45%, var(--color-surface));
+  }
 }
 
 .task-status {
@@ -632,6 +664,7 @@
 .task-meta {
   display: grid;
   min-width: 0;
+  flex: 1;
   gap: 2px;
 }
 
@@ -650,6 +683,50 @@
   font-size: 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.subtask-prefix {
+  margin-right: 4px;
+  color: var(--color-text-muted);
+  font-weight: 700;
+}
+
+.add-subtask-button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-accent);
+  cursor: pointer;
+  opacity: 0.76;
+
+  &:hover,
+  &:focus-visible {
+    border-color: var(--color-border);
+    background: var(--color-surface);
+    opacity: 1;
+  }
+}
+
+.task-row:hover .add-subtask-button,
+.task-row:focus-within .add-subtask-button {
+  opacity: 1;
+}
+
+.task-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.task-menu {
+  position: relative;
 }
 
 .empty-tasks {
@@ -743,8 +820,19 @@
 .calendar-task-row {
   position: relative;
   display: flex;
+  height: 52px;
   min-height: 52px;
+  box-sizing: border-box;
   border-bottom: 1px solid var(--color-border);
+
+  &.subtask-row {
+    background: color-mix(in srgb, var(--color-primary-light) 36%, transparent);
+  }
+
+  &.dependency-drop-ready {
+    outline: 1px dashed color-mix(in srgb, var(--color-accent) 55%, transparent);
+    outline-offset: -2px;
+  }
 }
 
 .day-cell {
@@ -760,24 +848,35 @@
 .task-bar {
   position: absolute;
   top: 11px;
-  z-index: 1;
+  z-index: 3;
+  display: block;
   height: 30px;
-  overflow: hidden;
   padding: 0;
   border: 0;
   border-radius: 7px;
   background: #db8b57;
   color: #fff;
-  cursor: pointer;
+  cursor: grab;
   text-align: left;
   white-space: nowrap;
+  touch-action: none;
+  user-select: none;
 
   &:hover {
     filter: brightness(0.96);
   }
 
+  &:active {
+    cursor: grabbing;
+  }
+
   &.bar-complete {
     background: var(--color-success);
+  }
+
+  &.bar-subtask {
+    border: 1px dashed color-mix(in srgb, var(--color-accent) 45%, white);
+    background: color-mix(in srgb, #db8b57 76%, white);
   }
 }
 
@@ -794,10 +893,90 @@
   display: block;
   overflow: hidden;
   padding: 0 8px;
+  border-radius: inherit;
   font-size: 10px;
   font-weight: 600;
   line-height: 30px;
   text-overflow: ellipsis;
+}
+
+.task-resize-handle {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  padding: 0;
+  border: 0;
+  background: linear-gradient(90deg, transparent 3px, rgb(255 255 255 / 85%) 3px 5px, transparent 5px);
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.task-resize-handle-left {
+  left: 0;
+}
+
+.task-resize-handle-right {
+  right: 0;
+}
+
+.dependency-handle {
+  position: absolute;
+  z-index: 4;
+  top: 8px;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 2px solid var(--color-surface);
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 72%, transparent);
+  cursor: grab;
+  opacity: 0.82;
+  touch-action: none;
+
+  &:active {
+    cursor: grabbing;
+  }
+
+  &:focus-visible,
+  .task-bar:hover &,
+  .task-bar:focus-within & {
+    opacity: 1;
+  }
+}
+
+.dependency-handle-left {
+  left: -14px;
+}
+
+.dependency-handle-right {
+  right: -14px;
+}
+
+.dependency-layer {
+  position: absolute;
+  z-index: 1;
+  top: 70px;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.dependency-path {
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-dasharray: 4 3;
+  stroke-width: 1.6;
+
+  marker-end {
+    fill: var(--color-primary);
+  }
+}
+
+.dependency-layer marker path {
+  fill: var(--color-primary);
 }
 
 .today-line {
@@ -849,6 +1028,10 @@
   td {
     color: var(--color-text);
   }
+
+  .subtask-name-cell {
+    padding-left: 28px;
+  }
 }
 
 .status-label {
@@ -866,13 +1049,48 @@
   }
 }
 
-.progress-button {
-  border: 0;
-  background: transparent;
-  color: var(--color-accent);
-  cursor: pointer;
+.dependency-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
   font-size: 10px;
-  font-weight: 600;
+
+  > strong {
+    color: var(--color-primary-dark);
+  }
+}
+
+.dependency-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px 3px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: 99px;
+  background: var(--color-bg);
+
+  button {
+    display: grid;
+    width: 18px;
+    height: 18px;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+
+    &:hover,
+    &:focus-visible {
+      background: var(--color-danger-light);
+      color: var(--color-danger);
+    }
+  }
 }
 
 .timeline-legend {

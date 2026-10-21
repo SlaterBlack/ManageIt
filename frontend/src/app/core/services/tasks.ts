@@ -6,6 +6,7 @@ import {
   Task,
   TaskUpdate,
 } from '../models/task.model';
+import { TaskDependency } from '../models/task-dependency.model';
 
 @Injectable({
   providedIn: 'root',
@@ -29,5 +30,32 @@ export class TasksService {
     return this.http
       .patch<{ task: Task }>(`/api/tasks/${taskId}`, update)
       .pipe(map(({ task }) => task));
+  }
+
+  listDependencies(projectId: string): Observable<TaskDependency[]> {
+    return this.http
+      .get<{ dependencies: TaskDependency[] }>(
+        `/api/projects/${projectId}/dependencies`,
+      )
+      .pipe(map(({ dependencies }) => dependencies));
+  }
+
+  createDependency(
+    projectId: string,
+    predecessorTaskId: string,
+    successorTaskId: string,
+  ): Observable<TaskDependency> {
+    return this.http
+      .post<{ dependency: TaskDependency }>(
+        `/api/projects/${projectId}/dependencies`,
+        { predecessorTaskId, successorTaskId },
+      )
+      .pipe(map(({ dependency }) => dependency));
+  }
+
+  deleteDependency(projectId: string, dependencyId: string): Observable<void> {
+    return this.http.delete<void>(
+      `/api/projects/${projectId}/dependencies/${dependencyId}`,
+    );
   }
 }

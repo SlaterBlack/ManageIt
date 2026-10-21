@@ -7,12 +7,14 @@ import {
 import { env } from './config/env';
 import './models';
 import { migrateProjectMetadata } from './models/projectMetadataMigration';
+import { migrateTaskStructure } from './models/taskStructureMigration';
 import { seedDemoProjectIfEmpty } from './models/seed';
 
 async function bootstrap(): Promise<void> {
   await connectDatabases();
   if (env.nodeEnv === 'development') {
     await migrateProjectMetadata();
+    await migrateTaskStructure();
     await sequelize.sync({ alter: true });
     await seedDemoProjectIfEmpty();
   }

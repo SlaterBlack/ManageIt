@@ -55,11 +55,13 @@ export const createProjectTask = asyncHandler(
     if (!project) {
       throw new ApiError(404, 'Project not found.');
     }
-    const { name, assignee = '', startDate, dueDate } = req.body as {
+    const { name, assignee = '', startDate, dueDate, parentTaskId = null } =
+      req.body as {
       name?: unknown;
       assignee?: unknown;
       startDate?: unknown;
       dueDate?: unknown;
+      parentTaskId?: unknown;
     };
     if (typeof assignee !== 'string' || assignee.length > 120) {
       throw new ApiError(400, 'Assignee must be 120 characters or fewer.');
@@ -69,8 +71,31 @@ export const createProjectTask = asyncHandler(
     if (validDue < validStart) {
       throw new ApiError(400, 'Due date must be on or after the start date.');
     }
+    let parentTask: Task | null = null;
+    if (parentTaskId !== null) {
+      if (typeof parentTaskId !== 'string') {
+        throw new ApiError(400, 'Parent task ID must be a valid task ID.');
+      }
+      parentTask = await Task.findByPk(parentTaskId);
+      if (!parentTask || parentTask.projectId !== project.id) {
+        throw new ApiError(400, 'Parent task must belong to the same project.');
+      }
+      if (parentTask.parentTaskId) {
+        throw new ApiError(400, 'Subtasks cannot contain further subtasks.');
+      }
+      if (
+        validStart < parentTask.startDate ||
+        validDue > parentTask.dueDate
+      ) {
+        throw new ApiError(
+          400,
+          'Subtask dates must be within the parent task date range.',
+        );
+      }
+    }
     const task = await Task.create({
       projectId: project.id,
+      parentTaskId: parentTask?.id ?? null,
       name: validateTaskName(name),
       assignee: assignee.trim(),
       startDate: validStart,
@@ -137,6 +162,33 @@ export const updateTask = asyncHandler(async (req: Request, res: Response) => {
   const resultingDue = updates.dueDate ?? task.dueDate;
   if (resultingDue < resultingStart) {
     throw new ApiError(400, 'Due date must be on or after the start date.');
+  }
+
+  if (task.parentTaskId) {
+    const parent = await Task.findByPk(task.parentTaskId);
+    if (
+      !parent ||
+      resultingStart < parent.startDate ||
+      resultingDue > parent.dueDate
+    ) {
+      throw new ApiError(
+        400,
+        'Subtask dates must be within the parent task date range.',
+      );
+    }
+  } else {
+    const subtasks = await Task.findAll({ where: { parentTaskId: task.id } });
+    if (
+      subtasks.some(
+        (subtask) =>
+          subtask.startDate < resultingStart || subtask.dueDate > resultingDue,
+      )
+    ) {
+      throw new ApiError(
+        400,
+        'Parent task dates must contain the dates of all its subtasks.',
+      );
+    }
   }
 
   await task.update(updates);

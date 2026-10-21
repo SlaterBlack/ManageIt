@@ -22,7 +22,10 @@ export const errorHandler: ErrorRequestHandler = (
   }
 
   if (error instanceof UniqueConstraintError) {
-    res.status(409).json({ error: 'Project code is already in use.' });
+    const message = error.fields && 'project_code' in error.fields
+      ? 'Project code is already in use.'
+      : 'These tasks are already linked.';
+    res.status(409).json({ error: message });
     return;
   }
 

@@ -7,6 +7,7 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 export interface TaskAttributes {
   id: string;
   projectId: string;
+  parentTaskId: string | null;
   name: string;
   assignee: string;
   startDate: string;
@@ -19,7 +20,7 @@ export interface TaskAttributes {
 
 export type TaskCreationAttributes = Optional<
   TaskAttributes,
-  'id' | 'assignee' | 'progress' | 'status' | 'createdAt' | 'updatedAt'
+  'id' | 'parentTaskId' | 'assignee' | 'progress' | 'status' | 'createdAt' | 'updatedAt'
 >;
 
 export class Task
@@ -28,6 +29,7 @@ export class Task
 {
   public id!: string;
   public projectId!: string;
+  public parentTaskId!: string | null;
   public name!: string;
   public assignee!: string;
   public startDate!: string;
@@ -48,6 +50,10 @@ Task.init(
     projectId: {
       type: DataTypes.UUID,
       allowNull: false,
+    },
+    parentTaskId: {
+      type: DataTypes.UUID,
+      allowNull: true,
     },
     name: {
       type: DataTypes.STRING(120),
