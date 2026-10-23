@@ -1,6 +1,9 @@
 # ManageIt
 
-ManageIt is a shared-team project planner with a Gantt-style timeline. It uses an Angular CLI frontend, a TypeScript/Express backend, Sequelize models, and PostgreSQL. Team members sign in with their existing ClockedIn account; all authenticated team members share the same projects, with no workspace switching, project ownership, roles, billing, or subscription tiers.
+ManageIt is a shared-team project planner with a Gantt-style timeline. Its
+Angular frontend uses the shared StoreIt Node/Express API and PostgreSQL
+database. Team members sign in with their service-wide account; ManageIt project
+and task data remains separate from ClockIt's time-tracking data.
 
 ## Requirements
 
@@ -11,46 +14,45 @@ ManageIt is a shared-team project planner with a Gantt-style timeline. It uses a
 
 ## Local setup
 
-1. Create a dedicated PostgreSQL database named `manageit`. Keep it separate from any other application's database.
-2. Copy `backend/.env.example` to `backend/.env` and configure both database connections. Keep `DB_NAME=manageit`; set `CLOCKEDIN_DB_NAME` to the ClockedIn database name and provide a database user with read access to its `users` table. Set `MANAGEIT_JWT_SECRET` to a long random value.
-3. Ensure PostgreSQL is running and both databases are reachable. The ClockedIn web/API service does not need to be running.
-4. In one terminal, install and start the backend:
+1. Configure `StoreIt/backend/.env` with the StoreIt PostgreSQL database and shared `JWT_SECRET`.
+2. Ensure the existing ClockIt and ManageIt PostgreSQL databases are reachable with the source credentials in the StoreIt environment file.
+3. From `StoreIt/backend`, install dependencies, create the StoreIt schema, and run the read-only migration preflight:
 
    ```powershell
-   Set-Location backend
+   Set-Location ..\StoreIt\backend
    npm install
+   npm run db:migrate
+   npm run data:check
+   ```
+
+4. After reviewing the preflight counts and backing up both source databases, import the legacy data with `npm run data:migrate`.
+5. Start StoreIt:
+
+   ```powershell
    npm run dev
    ```
 
-5. In a second terminal, install and start Angular:
+6. In a second terminal, install and start Angular:
 
    ```powershell
    Set-Location frontend
+   Copy-Item .env.example .env
    npm install
    npm start
    ```
 
-Open `http://localhost:4201` and sign in with a ClockedIn account. The API listens on `http://localhost:4001`; the Angular development server proxies `/api` requests to it. On first development startup, Sequelize synchronizes the ManageIt model schema and adds a small demo project if the ManageIt database is empty.
+Open the ManageIt frontend and sign in with your service account. It sends
+ManageIt project/task requests to `/api/manageit/...`; shared sign-in uses
+`/api/auth`. The frontend proxy reads `STOREIT_API_URL` from
+`frontend/.env` (copy `.env.example` there), defaulting to
+`http://127.0.0.1:4002`.
 
 Projects have a unique three-digit code and a saved color. The Projects page supports preset and custom colors; development startup assigns codes to existing projects and gives them the default orange color.
 
-The local `backend/.env` contains machine-specific database credentials and must not be committed. ManageIt uses a separate `manageit` database for projects and tasks, and reads only the ClockedIn `users` table to verify bcrypt password hashes and retrieve the current user profile. It never stores or returns ClockedIn password hashes. ManageIt issues its own signed tokens, so the ClockedIn web/API service can be stopped; PostgreSQL and the ClockedIn database must remain available. For production, use a ClockedIn database role that has `CONNECT` access and `SELECT` permission on `public.users` only.
-
-For production, create a dedicated read-only PostgreSQL role for ClockedIn account lookups. Replace the example password and database name:
-
-```sql
-CREATE ROLE manageit_accounts_reader LOGIN PASSWORD 'replace-with-a-strong-password';
-GRANT CONNECT ON DATABASE clockify_dupe TO manageit_accounts_reader;
-```
-
-Connect to the ClockedIn database, then grant access only to its user table:
-
-```sql
-GRANT USAGE ON SCHEMA public TO manageit_accounts_reader;
-GRANT SELECT ON TABLE public.users TO manageit_accounts_reader;
-```
-
-Set `CLOCKEDIN_DB_USER` and `CLOCKEDIN_DB_PASSWORD` to this role in `backend/.env`.
+StoreIt contains the shared user table and both app data sets. The migration
+preserves ClockIt's user UUIDs and password hashes, and imports ClockIt and
+ManageIt data into separate tables. The legacy ClockIt and ManageIt backend
+folders were removed after the imported data was verified.
 
 ## Project structure
 
@@ -64,14 +66,6 @@ frontend/
   src/app/features/projects/ Shared projects, codes, and color picker
   src/app/layout/            App shell and navigation
   src/styles/                Orange-and-cream SCSS tokens and shared styles
-backend/
-  src/config/                Environment and Sequelize configuration
-  src/controllers/           Project and task request handlers
-  migrations/                Production PostgreSQL migrations
-  src/middleware/            API errors and not-found handling
-  src/models/                Sequelize project and task models
-  src/routes/                REST API routes
-  src/server.ts              Database startup and development schema sync
 ```
 
 The app shell provides separate `/overview`, `/projects`, and `/calendar` pages. Opening a project from the project list navigates to its calendar using the `project` query parameter. The Projects page separates active and archived projects; archived projects can be restored or permanently deleted from their **…** menu. Archiving a project hides it and its tasks from active views without changing task archive flags. Permanently deleting a project also deletes its tasks and dependencies.
@@ -88,14 +82,14 @@ npm run ng -- generate service core/services/example
 
 ## API
 
-- `GET /api/health` — API/database readiness
-- `POST /api/auth/login` / `GET /api/auth/me` — database-backed ClockedIn sign-in and current user (login is public; `/me` requires a valid ManageIt bearer token)
-- `GET /api/projects` / `POST /api/projects` — requires a valid ClockedIn bearer token
-- `PATCH /api/projects/:id` / `DELETE /api/projects/:id`
-- `GET /api/projects/:projectId/tasks` / `POST /api/projects/:projectId/tasks`
-- `GET /api/projects/:projectId/dependencies` / `POST /api/projects/:projectId/dependencies`
-- `DELETE /api/projects/:projectId/dependencies/:dependencyId`
-- `PATCH /api/tasks/:taskId` / `DELETE /api/tasks/:taskId`
+- `GET /api/health` — StoreIt API/database readiness
+- `POST /api/auth/login` / `GET /api/auth/me` — shared service sign-in and current user
+- `GET /api/manageit/projects` / `POST /api/manageit/projects`
+- `PATCH /api/manageit/projects/:id` / `DELETE /api/manageit/projects/:id`
+- `GET /api/manageit/projects/:projectId/tasks` / `POST /api/manageit/projects/:projectId/tasks`
+- `GET /api/manageit/projects/:projectId/dependencies` / `POST /api/manageit/projects/:projectId/dependencies`
+- `DELETE /api/manageit/projects/:projectId/dependencies/:dependencyId`
+- `PATCH /api/manageit/tasks/:taskId` / `DELETE /api/manageit/tasks/:taskId`
 
 Project creation requires a unique three-digit `projectCode` and a `name`; `color` is an optional six-digit hex value that defaults to orange. Project updates accept `projectCode`, `name`, `description`, `color`, and the boolean `isArchived`.
 
@@ -103,22 +97,16 @@ Task creation requires a name and valid `startDate` / `dueDate` values (`YYYY-MM
 
 ## Build
 
-Run the build in each app directory:
+Build the shared API from `StoreIt/backend` and the frontend from `ManageIt/frontend`:
 
 ```powershell
-Set-Location backend
+Set-Location ..\StoreIt\backend
 npm run build
 
-Set-Location ..\frontend
+Set-Location ..\ManageIt\frontend
 npm run build
 ```
 
-The backend uses `sequelize.sync({ alter: true })` only in development for this scaffold. Use explicit database migrations before production deployment.
-
-For an existing production ManageIt database, run [`backend/migrations/20261021_add_project_code_and_color.sql`](./backend/migrations/20261021_add_project_code_and_color.sql) once before deploying the project-code/color backend. It assigns unused three-digit codes and applies the default orange to existing projects. Do not run this one-time migration against a database that already has these columns.
-
-For the task dependency and subtask schema, run [`backend/migrations/20261021_add_task_dependencies_and_subtasks.sql`](./backend/migrations/20261021_add_task_dependencies_and_subtasks.sql) against an existing production ManageIt database before deploying the feature. The script expects PostgreSQL's `gen_random_uuid()` function to be available.
-
-For milestone support, run [`backend/migrations/20261021_add_task_milestones.sql`](./backend/migrations/20261021_add_task_milestones.sql) against an existing production ManageIt database before deploying the feature.
-
-For project and task archiving, run [`backend/migrations/20261021_add_archive_state.sql`](./backend/migrations/20261021_add_archive_state.sql) against an existing production ManageIt database before deploying the feature. Development startup applies the archive columns idempotently.
+StoreIt's schema command creates missing tables only; it does not alter or drop
+legacy databases. The legacy migration defaults to a read-only check. Review
+and back up source databases before invoking the explicit import command.

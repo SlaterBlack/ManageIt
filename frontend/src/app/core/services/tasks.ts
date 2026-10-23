@@ -13,33 +13,34 @@ import { TaskDependency } from '../models/task-dependency.model';
 })
 export class TasksService {
   private readonly http = inject(HttpClient);
+  private readonly apiUrl = '/api/manageit';
 
   list(projectId: string): Observable<Task[]> {
     return this.http
-      .get<{ tasks: Task[] }>(`/api/projects/${projectId}/tasks`)
+      .get<{ tasks: Task[] }>(`${this.apiUrl}/projects/${projectId}/tasks`)
       .pipe(map(({ tasks }) => tasks));
   }
 
   create(projectId: string, request: CreateTaskRequest): Observable<Task> {
     return this.http
-      .post<{ task: Task }>(`/api/projects/${projectId}/tasks`, request)
+      .post<{ task: Task }>(`${this.apiUrl}/projects/${projectId}/tasks`, request)
       .pipe(map(({ task }) => task));
   }
 
   update(taskId: string, update: TaskUpdate): Observable<Task> {
     return this.http
-      .patch<{ task: Task }>(`/api/tasks/${taskId}`, update)
+      .patch<{ task: Task }>(`${this.apiUrl}/tasks/${taskId}`, update)
       .pipe(map(({ task }) => task));
   }
 
   delete(taskId: string): Observable<void> {
-    return this.http.delete<void>(`/api/tasks/${taskId}`);
+    return this.http.delete<void>(`${this.apiUrl}/tasks/${taskId}`);
   }
 
   listDependencies(projectId: string): Observable<TaskDependency[]> {
     return this.http
       .get<{ dependencies: TaskDependency[] }>(
-        `/api/projects/${projectId}/dependencies`,
+        `${this.apiUrl}/projects/${projectId}/dependencies`,
       )
       .pipe(map(({ dependencies }) => dependencies));
   }
@@ -51,7 +52,7 @@ export class TasksService {
   ): Observable<TaskDependency> {
     return this.http
       .post<{ dependency: TaskDependency }>(
-        `/api/projects/${projectId}/dependencies`,
+        `${this.apiUrl}/projects/${projectId}/dependencies`,
         { predecessorTaskId, successorTaskId },
       )
       .pipe(map(({ dependency }) => dependency));
@@ -59,7 +60,7 @@ export class TasksService {
 
   deleteDependency(projectId: string, dependencyId: string): Observable<void> {
     return this.http.delete<void>(
-      `/api/projects/${projectId}/dependencies/${dependencyId}`,
+      `${this.apiUrl}/projects/${projectId}/dependencies/${dependencyId}`,
     );
   }
 }

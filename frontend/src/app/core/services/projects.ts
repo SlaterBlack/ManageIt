@@ -12,16 +12,17 @@ type ProjectChanges = Partial<
 })
 export class ProjectsService {
   private readonly http = inject(HttpClient);
+  private readonly apiUrl = '/api/manageit/projects';
 
   list(): Observable<Project[]> {
     return this.http
-      .get<{ projects: Project[] }>('/api/projects')
+      .get<{ projects: Project[] }>(this.apiUrl)
       .pipe(map(({ projects }) => projects));
   }
 
   create(projectCode: string, name: string, color: string): Observable<Project> {
     return this.http
-      .post<{ project: Project }>('/api/projects', {
+      .post<{ project: Project }>(this.apiUrl, {
         projectCode,
         name,
         color,
@@ -31,11 +32,11 @@ export class ProjectsService {
 
   update(id: string, changes: ProjectChanges): Observable<Project> {
     return this.http
-      .patch<{ project: Project }>(`/api/projects/${id}`, changes)
+      .patch<{ project: Project }>(`${this.apiUrl}/${id}`, changes)
       .pipe(map(({ project }) => project));
   }
 
   delete(id: string): Observable<void> {
-    return this.http.delete<void>(`/api/projects/${id}`);
+    return this.http.delete<void>(`${this.apiUrl}/${id}`);
   }
 }
