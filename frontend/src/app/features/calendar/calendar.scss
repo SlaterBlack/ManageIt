@@ -1062,7 +1062,7 @@
 
 .board-task-card {
   min-width: 0;
-  padding: 10px;
+  padding: 5px 10px 10px;
   border: 1px solid var(--color-border);
   border-left: 3px solid var(--task-color);
   border-radius: var(--radius-sm);
@@ -1102,6 +1102,12 @@
 
 .board-card-top {
   min-height: 25px;
+
+  h4 {
+    min-width: 0;
+    flex: 1 1 auto;
+    margin: 0;
+  }
 
   .task-actions {
     margin-left: auto;

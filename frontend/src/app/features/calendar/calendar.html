@@ -714,6 +714,7 @@
                   (change)="setTaskSelected(row.task.id, $event)"
                 >
                 <span class="milestone-badge" *ngIf="row.task.isMilestone">Milestone</span>
+                <h4>{{ row.task.name }}</h4>
                 <div class="task-actions">
                   <button
                     class="add-subtask-button"
@@ -734,10 +735,9 @@
                       [disabled]="isUpdatingTask(row.task.id) || groupChangeBusy() || savingTask()"
                       (click)="toggleTaskMenu(row.task)"
                     >…</button>
-                  </div>
+                    </div>
                 </div>
               </div>
-              <h4>{{ row.task.name }}</h4>
               <p class="board-card-assignees">{{ row.task.assignee || 'Unassigned' }}</p>
               <div class="board-card-dates">
                 <span>{{ row.task.startDate | date:'mediumDate' }}</span>
