@@ -11,15 +11,23 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom, forkJoin } from 'rxjs';
 import { Project } from '../../core/models/project.model';
-import { Task, TaskStatus, TaskUpdate } from '../../core/models/task.model';
+import { UserName } from '../../core/models/user.model';
+import {
+  MAX_ASSIGNEES_LENGTH,
+  Task,
+  TaskStatus,
+  TaskUpdate,
+} from '../../core/models/task.model';
 import { TaskDependency } from '../../core/models/task-dependency.model';
 import { ProjectsService } from '../../core/services/projects';
 import { TasksService } from '../../core/services/tasks';
+import { UsersService } from '../../core/services/users';
 import { ProjectColorPicker } from '../projects/project-color-picker';
 import {
   GanttImportPreview,
   GanttImporter,
 } from './gantt-importer';
+import { AssigneePicker } from './assignee-picker';
 
 interface TimelineDay {
   date: Date;
@@ -50,15 +58,27 @@ interface TaskDates {
   dueDate: string;
 }
 
+interface BoardColumn {
+  status: TaskStatus;
+  label: string;
+}
+
 @Component({
   selector: 'app-calendar',
-  imports: [CommonModule, FormsModule, RouterLink, ProjectColorPicker],
+  imports: [
+    CommonModule,
+    FormsModule,
+    RouterLink,
+    ProjectColorPicker,
+    AssigneePicker,
+  ],
   templateUrl: './calendar.html',
   styleUrl: './calendar.scss',
 })
 export class Calendar {
   private readonly projectsApi = inject(ProjectsService);
   private readonly tasksApi = inject(TasksService);
+  private readonly usersApi = inject(UsersService);
   private readonly ganttImporter = inject(GanttImporter);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -72,10 +92,18 @@ export class Calendar {
   readonly loadingProjects = signal(true);
   readonly loadingTasks = signal(false);
   readonly errorMessage = signal('');
+  readonly assigneeSuggestionError = signal('');
   readonly showTaskForm = signal(false);
   readonly creatingMilestone = signal(false);
   readonly archivedView = signal(false);
-  readonly viewMode = signal<'timeline' | 'list'>('timeline');
+  readonly viewMode = signal<'timeline' | 'list' | 'board'>('timeline');
+  readonly boardColumns: readonly BoardColumn[] = [
+    { status: 'not_started', label: 'Open' },
+    { status: 'in_progress', label: 'In progress' },
+    { status: 'complete', label: 'Complete' },
+  ];
+  readonly boardDraggedTaskId = signal<string | null>(null);
+  readonly boardDropTargetStatus = signal<TaskStatus | null>(null);
   readonly searchOpen = signal(false);
   readonly searchTerm = signal('');
   readonly notificationsOpen = signal(false);
@@ -106,9 +134,23 @@ export class Calendar {
   readonly ganttImportPreview = signal<GanttImportPreview | null>(null);
   readonly ganttImportMessage = signal('');
   readonly ganttImportNeedsRefresh = signal(false);
+  readonly assigneeUsers = signal<UserName[]>([]);
   readonly selectedProject = computed(() =>
     this.projects().find((project) => project.id === this.selectedProjectId()),
   );
+  readonly assigneeSuggestions = computed(() => {
+    const names = new Map<string, string>();
+    for (const { name } of this.assigneeUsers()) {
+      const trimmedName = name.trim();
+      const key = trimmedName.toLocaleLowerCase();
+      if (trimmedName && !names.has(key)) {
+        names.set(key, trimmedName);
+      }
+    }
+    return [...names.values()].sort((left, right) =>
+      left.localeCompare(right),
+    );
+  });
   readonly completedCount = computed(
     () => this.displayedTasks().filter((task) => task.status === 'complete').length,
   );
@@ -222,11 +264,11 @@ export class Calendar {
   });
 
   taskName = '';
-  taskAssignee = '';
+  taskAssignees: string[] = [];
   taskStartDate = this.dateInput(new Date());
   taskDueDate = this.dateInput(new Date(Date.now() + 7 * 86400000));
   editedTaskName = '';
-  editedTaskAssignee = '';
+  editedTaskAssignees: string[] = [];
   editedTaskStartDate = '';
   editedTaskDueDate = '';
   editedTaskProgress = 0;
@@ -246,6 +288,23 @@ export class Calendar {
       if (this.projectsLoaded) this.applyProjectSelection();
     });
     this.loadProjects();
+    this.loadAssigneeUsers();
+  }
+
+  private loadAssigneeUsers(): void {
+    this.usersApi.listNames().subscribe({
+      next: (users) => {
+        this.assigneeUsers.set(users);
+        this.assigneeSuggestionError.set('');
+      },
+      error: (error: unknown) =>
+        this.assigneeSuggestionError.set(
+          this.apiError(
+            error,
+            'Could not load user suggestions. You can still add names manually.',
+          ),
+        ),
+    });
   }
 
   loadProjects(): void {
@@ -570,7 +629,9 @@ export class Calendar {
     this.tasksApi
       .create(projectId, {
         name: this.taskName.trim(),
-        assignee: this.creatingMilestone() ? '' : this.taskAssignee.trim(),
+        assignee: this.creatingMilestone()
+          ? ''
+          : this.serializeAssignees(this.taskAssignees),
         isMilestone: this.creatingMilestone(),
         startDate: this.taskStartDate,
         dueDate: this.creatingMilestone()
@@ -586,7 +647,7 @@ export class Calendar {
           );
           this.updateTimeline(this.displayedTasks());
           this.taskName = '';
-          this.taskAssignee = '';
+          this.taskAssignees = [];
           this.showTaskForm.set(false);
           this.creatingMilestone.set(false);
           this.errorMessage.set('');
@@ -648,9 +709,29 @@ export class Calendar {
     return (
       Boolean(this.taskName.trim()) &&
       Boolean(this.taskStartDate) &&
+      this.serializeAssignees(this.taskAssignees).length <=
+        MAX_ASSIGNEES_LENGTH &&
       (this.creatingMilestone() ||
         this.taskStartDate <= this.taskDueDate)
     );
+  }
+
+  private parseAssignees(value: string): string[] {
+    return value
+      .split(',')
+      .map((assignee) => assignee.trim())
+      .filter(Boolean);
+  }
+
+  private serializeAssignees(assignees: string[]): string {
+    const uniqueAssignees = new Map<string, string>();
+    for (const assignee of assignees.map((value) => value.trim()).filter(Boolean)) {
+      const key = assignee.toLocaleLowerCase();
+      if (!uniqueAssignees.has(key)) {
+        uniqueAssignees.set(key, assignee);
+      }
+    }
+    return [...uniqueAssignees.values()].join(', ');
   }
 
   startDependencyDrag(
@@ -969,6 +1050,18 @@ export class Calendar {
   }
 
   toggleTaskCompletion(task: Task): void {
+    const status = task.status === 'complete' ? 'not_started' : 'complete';
+    this.updateTaskStatus(task, status);
+  }
+
+  moveBoardTask(task: Task, status: TaskStatus): void {
+    if (this.archivedView() || this.groupChangeMode()) {
+      return;
+    }
+    this.updateTaskStatus(task, status);
+  }
+
+  private updateTaskStatus(task: Task, status: TaskStatus): void {
     if (
       this.isUpdatingTask(task.id) ||
       this.groupChangeBusy() ||
@@ -979,11 +1072,13 @@ export class Calendar {
       return;
     }
 
-    const status = task.status === 'complete' ? 'not_started' : 'complete';
-    const update: TaskUpdate = {
-      status,
-      progress: status === 'complete' ? 100 : 0,
-    };
+    if (task.status === status) return;
+    const update: TaskUpdate = { status };
+    if (status === 'complete') {
+      update.progress = 100;
+    } else if (status === 'not_started') {
+      update.progress = 0;
+    }
     this.updatingTaskIds.update((ids) => new Set(ids).add(task.id));
     this.tasksApi.update(task.id, update).subscribe({
       next: (updatedTask) => {
@@ -1064,7 +1159,7 @@ export class Calendar {
     this.openTaskMenuId.set(task.id);
     this.editingTaskId.set(task.id);
     this.editedTaskName = task.name;
-    this.editedTaskAssignee = task.assignee;
+    this.editedTaskAssignees = this.parseAssignees(task.assignee);
     this.editedTaskStartDate = task.startDate;
     this.editedTaskDueDate = task.dueDate;
     this.editedTaskProgress = task.progress;
@@ -1112,7 +1207,8 @@ export class Calendar {
       (!this.editedTaskIsMilestone || this.canConvertToMilestone(task)) &&
       Boolean(this.editedTaskName.trim()) &&
       this.editedTaskName.trim().length <= 120 &&
-      this.editedTaskAssignee.trim().length <= 120 &&
+      this.serializeAssignees(this.editedTaskAssignees).length <=
+        MAX_ASSIGNEES_LENGTH &&
       datesValid &&
       Number.isInteger(this.editedTaskProgress) &&
       this.editedTaskProgress >= 0 &&
@@ -1153,7 +1249,7 @@ export class Calendar {
       dueDate !== task.dueDate;
     const update: TaskUpdate = {
       name: this.editedTaskName.trim(),
-      assignee: this.editedTaskAssignee.trim(),
+      assignee: this.serializeAssignees(this.editedTaskAssignees),
       progress: this.editedTaskProgress,
       status: this.editedTaskStatus,
       color: this.editedTaskColor,
@@ -1382,7 +1478,81 @@ export class Calendar {
     return row.task.id;
   }
 
-  setViewMode(mode: 'timeline' | 'list'): void {
+  boardTasksForStatus(status: TaskStatus): TimelineTask[] {
+    return this.timelineTasks().filter(({ task }) => task.status === status);
+  }
+
+  canDragBoardTask(task: Task): boolean {
+    return (
+      !this.archivedView() &&
+      !this.groupChangeMode() &&
+      !this.groupChangeBusy() &&
+      !this.savingTask() &&
+      !this.editingTaskId() &&
+      !this.isUpdatingTask(task.id)
+    );
+  }
+
+  startBoardTaskDrag(event: DragEvent, task: Task): void {
+    const target = event.target;
+    if (
+      !this.canDragBoardTask(task) ||
+      (target instanceof Element &&
+        target.closest('button, input, select, a'))
+    ) {
+      event.preventDefault();
+      return;
+    }
+    this.boardDraggedTaskId.set(task.id);
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', task.id);
+    }
+  }
+
+  allowBoardDrop(event: DragEvent, status: TaskStatus): void {
+    if (!this.boardDraggedTaskId() || this.archivedView() || this.groupChangeMode()) {
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'move';
+    }
+    this.boardDropTargetStatus.set(status);
+  }
+
+  clearBoardDrop(event: DragEvent, status: TaskStatus): void {
+    const currentTarget = event.currentTarget;
+    if (
+      event.relatedTarget instanceof Node &&
+      currentTarget instanceof Node &&
+      currentTarget.contains(event.relatedTarget)
+    ) {
+      return;
+    }
+    if (this.boardDropTargetStatus() === status) {
+      this.boardDropTargetStatus.set(null);
+    }
+  }
+
+  dropBoardTask(event: DragEvent, status: TaskStatus): void {
+    event.preventDefault();
+    const taskId =
+      event.dataTransfer?.getData('text/plain') || this.boardDraggedTaskId();
+    const task = this.tasks().find((item) => item.id === taskId);
+    this.boardDraggedTaskId.set(null);
+    this.boardDropTargetStatus.set(null);
+    if (task && this.canDragBoardTask(task)) {
+      this.moveBoardTask(task, status);
+    }
+  }
+
+  endBoardTaskDrag(): void {
+    this.boardDraggedTaskId.set(null);
+    this.boardDropTargetStatus.set(null);
+  }
+
+  setViewMode(mode: 'timeline' | 'list' | 'board'): void {
     this.viewMode.set(mode);
   }
 

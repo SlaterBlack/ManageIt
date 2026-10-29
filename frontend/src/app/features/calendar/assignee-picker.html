@@ -1,0 +1,54 @@
+<div class="assignee-picker" [class.is-disabled]="disabled">
+  <div class="assignee-entry">
+    <input
+      type="text"
+      [name]="inputName"
+      [(ngModel)]="inputValue"
+      [ngModelOptions]="{ standalone: true }"
+      [disabled]="disabled"
+      [maxlength]="maxLength"
+      [attr.aria-label]="'Add assignee'"
+      placeholder="Type a name or choose a suggestion"
+      autocomplete="off"
+      (focus)="suggestionsOpen = true"
+      (blur)="handleBlur()"
+      (keydown)="handleKeydown($event)"
+    >
+    <div
+      class="assignee-suggestions"
+      *ngIf="suggestionsOpen && (filteredSuggestions.length || canAddTypedAssignee)"
+      role="listbox"
+      aria-label="Assignee suggestions"
+    >
+      <button
+        *ngIf="canAddTypedAssignee"
+        type="button"
+        role="option"
+        (mousedown)="$event.preventDefault()"
+        (click)="addTypedAssignees()"
+      >Add “{{ inputValue.split(',').at(-1)?.trim() }}”</button>
+      <button
+        *ngFor="let suggestion of filteredSuggestions"
+        type="button"
+        role="option"
+        (mousedown)="$event.preventDefault()"
+        (click)="addSuggestion(suggestion)"
+      >{{ suggestion }}</button>
+    </div>
+  </div>
+  <div class="assignee-chips" *ngIf="assignees.length">
+    <span class="assignee-chip" *ngFor="let assignee of assignees">
+      {{ assignee }}
+      <button
+        type="button"
+        [disabled]="disabled"
+        [attr.aria-label]="'Remove ' + assignee"
+        (mousedown)="$event.preventDefault()"
+        (click)="removeAssignee(assignee)"
+      >×</button>
+    </span>
+  </div>
+  <small class="assignee-error" *ngIf="exceedsMaxLength" role="alert">
+    Combined assignee names must be {{ maxLength }} characters or fewer.
+  </small>
+</div>

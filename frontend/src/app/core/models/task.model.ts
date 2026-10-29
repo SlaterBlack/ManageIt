@@ -1,4 +1,5 @@
 export type TaskStatus = 'not_started' | 'in_progress' | 'complete';
+export const MAX_ASSIGNEES_LENGTH = 500;
 
 export interface Task {
   id: string;

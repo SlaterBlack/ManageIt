@@ -188,14 +188,15 @@
         >
       </label>
       <label class="task-field" *ngIf="!creatingMilestone()">
-        Assignee
-        <input
-          type="text"
-          name="taskAssignee"
-          [(ngModel)]="taskAssignee"
-          maxlength="120"
-          placeholder="Optional"
-        >
+        Assignees
+        <app-assignee-picker
+          [(assignees)]="taskAssignees"
+          [suggestions]="assigneeSuggestions()"
+          inputName="taskAssigneeInput"
+        />
+        <small class="assignee-source-error" *ngIf="assigneeSuggestionError()">
+          {{ assigneeSuggestionError() }}
+        </small>
       </label>
       <label class="task-field">
         {{ creatingMilestone() ? 'Milestone date' : 'Start date' }}
@@ -237,8 +238,16 @@
             <input type="text" name="editedTaskName" [(ngModel)]="editedTaskName" maxlength="120" required [disabled]="savingTask()">
           </label>
           <label class="task-menu-field">
-            Assignee
-            <input type="text" name="editedTaskAssignee" [(ngModel)]="editedTaskAssignee" maxlength="120" [disabled]="savingTask()">
+            Assignees
+            <app-assignee-picker
+              [(assignees)]="editedTaskAssignees"
+              [suggestions]="assigneeSuggestions()"
+              inputName="editedTaskAssigneeInput"
+              [disabled]="savingTask()"
+            />
+            <small class="assignee-source-error" *ngIf="assigneeSuggestionError()">
+              {{ assigneeSuggestionError() }}
+            </small>
           </label>
           <fieldset class="task-menu-fieldset">
             <legend>
@@ -349,6 +358,7 @@
         <div class="view-tabs" role="tablist" aria-label="Task display">
           <button class="view-tab" type="button" [class.active]="viewMode() === 'timeline'" (click)="setViewMode('timeline')">Timeline</button>
           <button class="view-tab" type="button" [class.active]="viewMode() === 'list'" (click)="setViewMode('list')">List</button>
+          <button class="view-tab" type="button" [class.active]="viewMode() === 'board'" (click)="setViewMode('board')">Board</button>
         </div>
       </div>
       <div class="timeline-toolbar">
@@ -668,7 +678,94 @@
         </table>
       </div>
 
-      <div class="timeline-legend">
+      <div class="board-view" *ngIf="!loadingTasks() && viewMode() === 'board'" (scroll)="closeTaskMenuOnScroll()">
+        <section
+          class="board-column"
+          *ngFor="let column of boardColumns"
+          [class.drop-target]="boardDropTargetStatus() === column.status"
+          [attr.aria-label]="column.label + ' tasks'"
+          (dragover)="allowBoardDrop($event, column.status)"
+          (dragleave)="clearBoardDrop($event, column.status)"
+          (drop)="dropBoardTask($event, column.status)"
+        >
+          <header class="board-column-header">
+            <h3>{{ column.label }}</h3>
+            <span class="board-column-count">{{ boardTasksForStatus(column.status).length }}</span>
+          </header>
+          <div class="board-column-tasks">
+            <article
+              class="board-task-card"
+              *ngFor="let row of boardTasksForStatus(column.status); trackBy: trackTimelineTask"
+              [class.subtask-card]="row.depth"
+              [class.is-dragging]="boardDraggedTaskId() === row.task.id"
+              [style.--task-color]="taskColorForDisplay(row.task)"
+              [draggable]="canDragBoardTask(row.task)"
+              (dragstart)="startBoardTaskDrag($event, row.task)"
+              (dragend)="endBoardTaskDrag()"
+            >
+              <div class="board-card-top">
+                <input
+                  *ngIf="groupChangeMode()"
+                  class="task-select"
+                  type="checkbox"
+                  [checked]="selectedTaskIds().has(row.task.id)"
+                  [disabled]="groupChangeBusy() || isUpdatingTask(row.task.id)"
+                  [attr.aria-label]="'Select ' + row.task.name"
+                  (change)="setTaskSelected(row.task.id, $event)"
+                >
+                <span class="milestone-badge" *ngIf="row.task.isMilestone">Milestone</span>
+                <div class="task-actions">
+                  <button
+                    class="add-subtask-button"
+                    *ngIf="!archivedView() && !row.depth && !row.task.isMilestone"
+                    type="button"
+                    [disabled]="creatingSubtaskIds().has(row.task.id) || groupChangeBusy()"
+                    [attr.aria-label]="'Add subtask to ' + row.task.name"
+                    title="Add generic subtask"
+                    (click)="addSubtask(row.task)"
+                  >+</button>
+                  <div class="task-menu">
+                    <button
+                      class="icon-button task-menu-trigger"
+                      type="button"
+                      [attr.aria-label]="'More options for ' + row.task.name"
+                      [attr.aria-expanded]="openTaskMenuId() === row.task.id"
+                      aria-haspopup="dialog"
+                      [disabled]="isUpdatingTask(row.task.id) || groupChangeBusy() || savingTask()"
+                      (click)="toggleTaskMenu(row.task)"
+                    >…</button>
+                  </div>
+                </div>
+              </div>
+              <h4>{{ row.task.name }}</h4>
+              <p class="board-card-assignees">{{ row.task.assignee || 'Unassigned' }}</p>
+              <div class="board-card-dates">
+                <span>{{ row.task.startDate | date:'mediumDate' }}</span>
+                <span *ngIf="row.task.dueDate !== row.task.startDate">– {{ row.task.dueDate | date:'mediumDate' }}</span>
+              </div>
+              <div class="board-card-footer">
+                <span class="board-progress">{{ row.task.progress }}%</span>
+                <label class="visually-hidden" [attr.for]="'board-status-' + row.task.id">Status for {{ row.task.name }}</label>
+                <select
+                  class="board-status-select"
+                  [id]="'board-status-' + row.task.id"
+                  [ngModel]="row.task.status"
+                  [ngModelOptions]="{ standalone: true }"
+                  [disabled]="archivedView() || groupChangeMode() || groupChangeBusy() || savingTask() || !!editingTaskId() || isUpdatingTask(row.task.id)"
+                  (ngModelChange)="moveBoardTask(row.task, $event)"
+                >
+                  <option value="not_started">Open</option>
+                  <option value="in_progress">In progress</option>
+                  <option value="complete">Complete</option>
+                </select>
+              </div>
+            </article>
+            <p class="board-column-empty" *ngIf="!boardTasksForStatus(column.status).length">No tasks</p>
+          </div>
+        </section>
+      </div>
+
+      <div class="timeline-legend" *ngIf="viewMode() === 'timeline'">
         <span><i class="legend-dot progress-dot"></i> In progress</span>
         <span><i class="legend-dot complete-dot"></i> Complete</span>
         <span><i class="legend-dot milestone-dot"></i> Milestone</span>

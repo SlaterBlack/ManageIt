@@ -1,5 +1,8 @@
 import { Injectable } from '@angular/core';
-import { TaskStatus } from '../../core/models/task.model';
+import {
+  MAX_ASSIGNEES_LENGTH,
+  TaskStatus,
+} from '../../core/models/task.model';
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_TASKS = 5000;
@@ -385,8 +388,10 @@ export function parseGanttXml(xmlText: string): GanttImportPreview {
         `Task ${task.row} "${task.name}" is marked as a milestone but spans multiple dates.`,
       );
     }
-    if (task.assignee.length > 120) {
-      errors.push(`Task ${task.row} "${task.name}" has an assignee over 120 characters.`);
+    if (task.assignee.length > MAX_ASSIGNEES_LENGTH) {
+      errors.push(
+        `Task ${task.row} "${task.name}" has assignees over ${MAX_ASSIGNEES_LENGTH} characters.`,
+      );
     }
   }
 

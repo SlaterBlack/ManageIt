@@ -5,6 +5,7 @@ import { Project } from '../../core/models/project.model';
 import { Task, TaskUpdate } from '../../core/models/task.model';
 import { ProjectsService } from '../../core/services/projects';
 import { TasksService } from '../../core/services/tasks';
+import { UsersService } from '../../core/services/users';
 import { GanttImporter } from './gantt-importer';
 import { Calendar } from './calendar';
 
@@ -58,6 +59,17 @@ describe('Calendar group changes', () => {
             list: () => of([task]),
             listDependencies: () => of([]),
             update: updateTask,
+          },
+        },
+        {
+          provide: UsersService,
+          useValue: {
+            listNames: () =>
+              of([
+                { id: 'user-1', name: 'Alice' },
+                { id: 'user-2', name: 'Bob' },
+                { id: 'user-3', name: 'Charlie' },
+              ]),
           },
         },
         { provide: GanttImporter, useValue: {} },
@@ -165,18 +177,41 @@ describe('Calendar group changes', () => {
     const menu = fixture.nativeElement.querySelector('.task-edit-menu') as HTMLElement;
     expect(menu).not.toBeNull();
     expect(menu.textContent).toContain('Rename');
-    expect(menu.textContent).toContain('Assignee');
+    expect(menu.textContent).toContain('Assignees');
     expect(menu.textContent).toContain('Task state and progress');
     expect(menu.querySelector('.task-menu-fieldset app-project-color-picker')).not.toBeNull();
     expect(menu.querySelector('.task-menu-color')).toBeNull();
     expect(menu.textContent).toContain('Dates');
     expect(menu.querySelector('[name="editedTaskName"]')).not.toBeNull();
-    expect(menu.querySelector('[name="editedTaskAssignee"]')).not.toBeNull();
+    expect(menu.querySelector('app-assignee-picker')).not.toBeNull();
     expect(menu.querySelector('[name="editedTaskStatus"]')).not.toBeNull();
     expect(menu.querySelector('[name="editedTaskProgress"]')).not.toBeNull();
     expect(menu.querySelector('[name="editedTaskIsMilestone"]')).not.toBeNull();
     expect(menu.querySelector('[name="editedTaskStartDate"]')).not.toBeNull();
     expect(menu.querySelector('[name="editedTaskDueDate"]')).not.toBeNull();
+  });
+
+  it('suggests names loaded from the user directory', () => {
+    component.tasks.set([
+      { ...task, assignee: 'Someone not in the database list' },
+    ]);
+
+    expect(component.assigneeSuggestions()).toEqual(['Alice', 'Bob', 'Charlie']);
+  });
+
+  it('saves multiple task assignees as a comma-separated value', () => {
+    component.groupChangeMode.set(false);
+    component.tasks.set([task]);
+    component.startEditingTask(task);
+    component.editedTaskAssignees = ['Alice', 'Bob'];
+
+    component.saveTaskEdit();
+
+    expect(updateTask).toHaveBeenCalledWith(
+      task.id,
+      expect.objectContaining({ assignee: 'Alice, Bob' }),
+    );
+    expect(component.tasks()[0].assignee).toBe('Alice, Bob');
   });
 
   it('converts a task to a milestone and collapses its dates', () => {
@@ -370,5 +405,70 @@ describe('Calendar group changes', () => {
 
     expect(updateTask).toHaveBeenCalledWith(task.id, { status: 'in_progress' });
     expect(component.tasks()[0].progress).toBe(task.progress);
+  });
+
+  it('shows the Board with Open, In progress, and Complete columns', () => {
+    component.groupChangeMode.set(false);
+    component.setViewMode('board');
+    component.tasks.set([
+      { ...task, status: 'not_started' },
+      { ...task, id: 'task-2', name: 'Another task', status: 'in_progress' },
+      { ...task, id: 'task-3', name: 'Finished task', status: 'complete' },
+    ]);
+    fixture.detectChanges();
+
+    const columns = Array.from(
+      fixture.nativeElement.querySelectorAll('.board-column h3'),
+    ) as HTMLElement[];
+    expect(columns.map((column) => column.textContent?.trim())).toEqual([
+      'Open',
+      'In progress',
+      'Complete',
+    ]);
+    expect(fixture.nativeElement.querySelectorAll('.board-task-card')).toHaveLength(3);
+    expect(fixture.nativeElement.querySelector('.timeline-legend')).toBeNull();
+  });
+
+  it('moves a Board task by drag and updates status and progress', () => {
+    component.groupChangeMode.set(false);
+    component.setViewMode('board');
+    component.tasks.set([task]);
+    const dragStart = new Event('dragstart', {
+      cancelable: true,
+    }) as DragEvent;
+    const drop = new Event('drop', { cancelable: true }) as DragEvent;
+    Object.defineProperty(dragStart, 'dataTransfer', { value: null });
+    Object.defineProperty(drop, 'dataTransfer', { value: null });
+
+    component.startBoardTaskDrag(dragStart, task);
+    component.dropBoardTask(drop, 'complete');
+
+    expect(updateTask).toHaveBeenCalledWith(task.id, {
+      status: 'complete',
+      progress: 100,
+    });
+    expect(component.boardDraggedTaskId()).toBeNull();
+    expect(component.tasks()[0].status).toBe('complete');
+    expect(component.tasks()[0].progress).toBe(100);
+  });
+
+  it('completes subtasks when a parent card is moved to Complete', () => {
+    component.groupChangeMode.set(false);
+    const subtask: Task = {
+      ...task,
+      id: 'subtask-1',
+      parentTaskId: task.id,
+      name: 'Subtask',
+      status: 'not_started',
+      progress: 0,
+    };
+    component.tasks.set([task, subtask]);
+
+    component.moveBoardTask(task, 'complete');
+
+    expect(component.tasks()[0].status).toBe('complete');
+    expect(component.tasks()[0].progress).toBe(100);
+    expect(component.tasks()[1].status).toBe('complete');
+    expect(component.tasks()[1].progress).toBe(100);
   });
 });

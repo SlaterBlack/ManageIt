@@ -1,0 +1,123 @@
+:host {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.assignee-picker {
+  display: grid;
+  position: relative;
+  min-width: 0;
+  gap: 5px;
+}
+
+.assignee-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.assignee-chip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 7px;
+  border: 1px solid var(--color-border);
+  border-radius: 99px;
+  background: var(--color-primary-light);
+  color: var(--color-text);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+
+  button {
+    display: grid;
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+    box-sizing: border-box;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    font: 13px/16px Arial, sans-serif;
+    text-align: center;
+
+    &:hover:not(:disabled) {
+      background: var(--color-surface);
+      color: var(--color-text);
+    }
+  }
+}
+
+.assignee-entry {
+  position: relative;
+
+  input {
+    width: 100%;
+    min-width: 0;
+    min-height: 32px;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+    font-size: 11px;
+
+    &:focus {
+      border-color: var(--color-accent);
+      outline: 2px solid color-mix(in srgb, var(--color-accent) 25%, transparent);
+      outline-offset: 1px;
+    }
+  }
+}
+
+.assignee-suggestions {
+  display: grid;
+  position: absolute;
+  z-index: 15;
+  top: calc(100% + 3px);
+  right: 0;
+  left: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+
+  button {
+    padding: 7px 9px;
+    border: 0;
+    background: transparent;
+    color: var(--color-text);
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    text-align: left;
+
+    &:hover,
+    &:focus-visible {
+      background: var(--color-primary-light);
+    }
+
+    & + button {
+      border-top: 1px solid var(--color-border);
+    }
+  }
+}
+
+.assignee-error {
+  color: var(--color-danger);
+  font-size: 10px;
+}
+
+.is-disabled .assignee-chip button {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
