@@ -9,12 +9,16 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { forkJoin } from 'rxjs';
+import { firstValueFrom, forkJoin } from 'rxjs';
 import { Project } from '../../core/models/project.model';
 import { Task, TaskStatus } from '../../core/models/task.model';
 import { TaskDependency } from '../../core/models/task-dependency.model';
 import { ProjectsService } from '../../core/services/projects';
 import { TasksService } from '../../core/services/tasks';
+import {
+  GanttImportPreview,
+  GanttImporter,
+} from './gantt-importer';
 
 interface TimelineDay {
   date: Date;
@@ -54,9 +58,11 @@ interface TaskDates {
 export class Calendar {
   private readonly projectsApi = inject(ProjectsService);
   private readonly tasksApi = inject(TasksService);
+  private readonly ganttImporter = inject(GanttImporter);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly selectedProjectStorageKey = 'manageit_selected_project';
+  private ganttImportProjectId = '';
 
   readonly projects = signal<Project[]>([]);
   readonly tasks = signal<Task[]>([]);
@@ -83,6 +89,12 @@ export class Calendar {
   readonly savingTask = signal(false);
   readonly creatingSubtaskIds = signal<ReadonlySet<string>>(new Set());
   readonly updatingTaskIds = signal<ReadonlySet<string>>(new Set());
+  readonly showGanttImport = signal(false);
+  readonly parsingGantt = signal(false);
+  readonly importingGantt = signal(false);
+  readonly ganttImportPreview = signal<GanttImportPreview | null>(null);
+  readonly ganttImportMessage = signal('');
+  readonly ganttImportNeedsRefresh = signal(false);
   readonly selectedProject = computed(() =>
     this.projects().find((project) => project.id === this.selectedProjectId()),
   );
@@ -248,6 +260,7 @@ export class Calendar {
     this.selectedProjectId.set(project.id);
     localStorage.setItem(this.selectedProjectStorageKey, project.id);
     if (changed) {
+      this.closeGanttImport();
       this.tasks.set([]);
       this.dependencies.set([]);
       this.updateTimeline([]);
@@ -273,6 +286,9 @@ export class Calendar {
   }
 
   selectProjectById(id: string): void {
+    if (this.importingGantt()) {
+      return;
+    }
     const project = this.projects().find((item) => item.id === id);
     if (project) this.selectProject(project);
   }
@@ -283,7 +299,187 @@ export class Calendar {
     this.editingTaskId.set(null);
     this.showTaskForm.set(false);
     this.creatingMilestone.set(false);
+    if (archived) {
+      this.closeGanttImport();
+    }
     this.updateTimeline(this.displayedTasks());
+  }
+
+  openGanttImport(): void {
+    const projectId = this.selectedProjectId();
+    if (!projectId || this.archivedView()) {
+      return;
+    }
+    this.ganttImportProjectId = projectId;
+    this.ganttImportPreview.set(null);
+    this.ganttImportMessage.set('');
+    this.ganttImportNeedsRefresh.set(false);
+    this.showGanttImport.set(true);
+  }
+
+  closeGanttImport(): void {
+    if (this.importingGantt()) {
+      return;
+    }
+    this.showGanttImport.set(false);
+    this.ganttImportPreview.set(null);
+    this.ganttImportProjectId = '';
+    this.ganttImportMessage.set('');
+    this.ganttImportNeedsRefresh.set(false);
+  }
+
+  async selectGanttImportFile(event: Event): Promise<void> {
+    const input = event.currentTarget;
+    if (!(input instanceof HTMLInputElement)) {
+      return;
+    }
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) {
+      return;
+    }
+    this.ganttImportPreview.set(null);
+    this.ganttImportMessage.set('');
+    this.ganttImportNeedsRefresh.set(false);
+    this.parsingGantt.set(true);
+    try {
+      const preview = await this.ganttImporter.parseFile(file);
+      this.ganttImportPreview.set(preview);
+      this.ganttImportMessage.set(
+        preview.errors.length
+          ? 'Review the import errors below before importing.'
+          : `Ready to import ${preview.tasks.length} tasks into ${this.selectedProject()?.name ?? 'the selected project'}.`,
+      );
+    } catch (error: unknown) {
+      this.ganttImportMessage.set(
+        this.ganttImportError(error, 'Could not read the XML Gantt file.'),
+      );
+    } finally {
+      this.parsingGantt.set(false);
+    }
+  }
+
+  canImportGantt(): boolean {
+    const preview = this.ganttImportPreview();
+    return Boolean(
+      preview &&
+        preview.tasks.length &&
+        !preview.errors.length &&
+        this.ganttImportProjectId === this.selectedProjectId() &&
+        !this.parsingGantt() &&
+        !this.importingGantt() &&
+        !this.ganttImportNeedsRefresh(),
+    );
+  }
+
+  async importGantt(): Promise<void> {
+    const projectId = this.ganttImportProjectId;
+    const preview = this.ganttImportPreview();
+    if (!projectId || !preview || !this.canImportGantt()) {
+      return;
+    }
+
+    this.importingGantt.set(true);
+    this.ganttImportMessage.set('Importing tasks…');
+    const taskIds = new Map<string, string>();
+    const createdTasks: Task[] = [];
+    const createdDependencies: TaskDependency[] = [];
+    const rootTaskIds: string[] = [];
+
+    try {
+      for (const sourceTask of preview.tasks) {
+        const parentTaskId = sourceTask.parentSourceId
+          ? taskIds.get(sourceTask.parentSourceId)
+          : undefined;
+        if (sourceTask.parentSourceId && !parentTaskId) {
+          throw new Error(
+            `Could not match the parent for "${sourceTask.name}" during import.`,
+          );
+        }
+        this.ganttImportMessage.set(`Importing: ${sourceTask.name}`);
+        let task = await firstValueFrom(
+          this.tasksApi.create(projectId, {
+            name: sourceTask.name,
+            assignee: sourceTask.assignee,
+            startDate: sourceTask.startDate,
+            dueDate: sourceTask.dueDate,
+            isMilestone: sourceTask.isMilestone,
+            parentTaskId,
+          }),
+        );
+        taskIds.set(sourceTask.sourceId, task.id);
+        if (!parentTaskId) {
+          rootTaskIds.push(task.id);
+        }
+        if (sourceTask.progress !== 0 || sourceTask.status !== 'not_started') {
+          task = await firstValueFrom(
+            this.tasksApi.update(task.id, {
+              progress: sourceTask.progress,
+              status: sourceTask.status,
+            }),
+          );
+        }
+        createdTasks.push(task);
+      }
+
+      for (const dependency of preview.dependencies) {
+        const predecessorTaskId = taskIds.get(
+          dependency.predecessorSourceId,
+        );
+        const successorTaskId = taskIds.get(dependency.successorSourceId);
+        if (!predecessorTaskId || !successorTaskId) {
+          throw new Error('A predecessor link referred to a task not imported.');
+        }
+        createdDependencies.push(
+          await firstValueFrom(
+            this.tasksApi.createDependency(
+              projectId,
+              predecessorTaskId,
+              successorTaskId,
+            ),
+          ),
+        );
+      }
+
+      this.tasks.update((tasks) => [...tasks, ...createdTasks]);
+      this.dependencies.update((dependencies) => [
+        ...dependencies,
+        ...createdDependencies,
+      ]);
+      this.updateTimeline(this.displayedTasks());
+      this.ganttImportPreview.set(null);
+      this.ganttImportMessage.set(
+        `Imported ${createdTasks.length} tasks and ${createdDependencies.length} predecessor links.`,
+      );
+    } catch (error: unknown) {
+      let cleanupError: unknown = null;
+      for (const taskId of rootTaskIds.reverse()) {
+        try {
+          await firstValueFrom(this.tasksApi.delete(taskId));
+        } catch (error: unknown) {
+          cleanupError ??= error;
+        }
+      }
+      if (cleanupError) {
+        this.ganttImportNeedsRefresh.set(true);
+        this.loadTasks(projectId);
+        this.ganttImportMessage.set(
+          `Import failed and automatic cleanup was incomplete. Refresh the project and check for partially imported tasks. ${this.ganttImportError(
+            error,
+            'The import could not be completed.',
+          )} ${this.ganttImportError(cleanupError, 'Some imported tasks may remain.')}`,
+        );
+      } else {
+        this.ganttImportMessage.set(
+          `Import failed; created tasks were removed. ${this.ganttImportError(
+            error,
+            'The import could not be completed.',
+          )}`,
+        );
+      }
+    } finally {
+      this.importingGantt.set(false);
+    }
   }
 
   toggleTaskForm(): void {
@@ -664,10 +860,17 @@ export class Calendar {
   canSaveTaskEdit(): boolean {
     const task = this.tasks().find((item) => item.id === this.editingTaskId());
     if (!task) return false;
-    const bounds = this.taskDateBounds(task);
     const dueDate = task.isMilestone
       ? this.editedTaskStartDate
       : this.editedTaskDueDate;
+    const startShift = this.dayDifference(
+      task.startDate,
+      this.editedTaskStartDate,
+    );
+    const dueShift = this.dayDifference(task.dueDate, dueDate);
+    const movesParent =
+      !task.parentTaskId && startShift !== 0 && startShift === dueShift;
+    const bounds = movesParent ? {} : this.taskDateBounds(task);
     return (
       Boolean(this.editedTaskName.trim()) &&
       this.editedTaskName.trim().length <= 120 &&
@@ -709,7 +912,7 @@ export class Calendar {
       .subscribe({
         next: (updated) => {
           this.tasks.update((tasks) =>
-            tasks.map((task) => (task.id === taskId ? updated : task)),
+            this.tasksAfterTaskUpdate(tasks, task, updated),
           );
           this.updateTimeline(this.displayedTasks());
           this.editingTaskId.set(null);
@@ -737,11 +940,28 @@ export class Calendar {
 
   taskDatesFor(task: Task): TaskDates {
     const drag = this.taskTimelineDrag();
-    if (!drag || drag.taskId !== task.id || drag.deltaDays === 0) {
+    if (!drag || drag.deltaDays === 0) {
       return { startDate: task.startDate, dueDate: task.dueDate };
     }
 
-    const range = this.taskDateBounds(task);
+    if (drag.taskId !== task.id) {
+      if (
+        drag.mode !== 'move' ||
+        task.parentTaskId !== drag.taskId ||
+        this.tasks().find((item) => item.id === drag.taskId)?.parentTaskId
+      ) {
+        return { startDate: task.startDate, dueDate: task.dueDate };
+      }
+      return {
+        startDate: this.shiftDate(task.startDate, drag.deltaDays),
+        dueDate: this.shiftDate(task.dueDate, drag.deltaDays),
+      };
+    }
+
+    const range =
+      drag.mode === 'move' && !task.parentTaskId
+        ? {}
+        : this.taskDateBounds(task);
     if (drag.mode === 'move') {
       const minimumShift = range.minimumStart
         ? this.dayDifference(task.startDate, range.minimumStart)
@@ -1101,10 +1321,8 @@ export class Calendar {
 
   private saveTaskDates(task: Task, dates: TaskDates): void {
     const previousTasks = this.tasks();
-    this.tasks.update((tasks) =>
-      tasks.map((item) =>
-        item.id === task.id ? { ...item, ...dates } : item,
-      ),
+    this.tasks.set(
+      this.tasksAfterTaskUpdate(previousTasks, task, { ...task, ...dates }),
     );
     this.updateTimeline(this.displayedTasks());
     this.tasksApi
@@ -1128,6 +1346,39 @@ export class Calendar {
           );
         },
       });
+  }
+
+  private tasksAfterTaskUpdate(
+    tasks: Task[],
+    previousTask: Task,
+    updatedTask: Task,
+  ): Task[] {
+    const startShift = this.dayDifference(
+      previousTask.startDate,
+      updatedTask.startDate,
+    );
+    const dueShift = this.dayDifference(
+      previousTask.dueDate,
+      updatedTask.dueDate,
+    );
+    const shiftSubtasks =
+      !previousTask.parentTaskId &&
+      startShift !== 0 &&
+      startShift === dueShift;
+
+    return tasks.map((item) => {
+      if (item.id === updatedTask.id) {
+        return updatedTask;
+      }
+      if (shiftSubtasks && item.parentTaskId === updatedTask.id) {
+        return {
+          ...item,
+          startDate: this.shiftDate(item.startDate, startShift),
+          dueDate: this.shiftDate(item.dueDate, startShift),
+        };
+      }
+      return item;
+    });
   }
 
   private dayDifference(from: string, to: string): number {
@@ -1163,5 +1414,11 @@ export class Calendar {
       return error.error.error;
     }
     return fallback;
+  }
+
+  private ganttImportError(error: unknown, fallback: string): string {
+    return error instanceof Error && error.message
+      ? error.message
+      : this.apiError(error, fallback);
   }
 }

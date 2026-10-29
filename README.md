@@ -9,55 +9,49 @@ and task data remains separate from ClockIt's time-tracking data.
 
 - Node.js 20.19+ (Node.js 24 is supported)
 - npm 10+
-- PostgreSQL 16+ (the backend connects to a local or remote PostgreSQL server)
-- PostgreSQL access to the ClockedIn database's `users` table
+- A running StoreIt backend with its shared PostgreSQL database configured
 
 ## Local setup
 
-1. Configure `StoreIt/backend/.env` with the StoreIt PostgreSQL database and shared `JWT_SECRET`.
-2. Ensure the existing ClockIt and ManageIt PostgreSQL databases are reachable with the source credentials in the StoreIt environment file.
-3. From `StoreIt/backend`, install dependencies, create the StoreIt schema, and run the read-only migration preflight:
+ManageIt has no separate API or database. It uses StoreIt's shared account
+(`POST /api/auth/login`, `GET /api/auth/me`) and the ManageIt API
+(`/api/manageit/...`). Keep StoreIt running and use its local API address when
+both apps are on the same machine.
 
-   ```powershell
-   Set-Location ..\StoreIt\backend
+1. Copy `frontend/.env.example` to `frontend/.env`. The defaults use
+   `http://127.0.0.1:4002` for StoreIt and bind the production frontend server
+   to `127.0.0.1:2402`. Change these only if your StoreIt address or deployment
+   port differs. The production server can also read these values from its
+   process environment.
+2. Install and build the frontend:
+
+   ```sh
+   cd frontend
    npm install
-   npm run db:migrate
-   npm run data:check
+   npm run build
    ```
 
-4. After reviewing the preflight counts and backing up both source databases, import the legacy data with `npm run data:migrate`.
-5. Start StoreIt:
+3. Run locally in development with `npm start` (Angular on port 4201), or run
+   the built app with `npm run serve` (production server on port 2402).
 
-   ```powershell
-   npm run dev
-   ```
-
-6. In a second terminal, install and start Angular:
-
-   ```powershell
-   Set-Location frontend
-   Copy-Item .env.example .env
-   npm install
-   npm start
-   ```
-
-Open the ManageIt frontend and sign in with your service account. It sends
-ManageIt project/task requests to `/api/manageit/...`; shared sign-in uses
-`/api/auth`. The frontend proxy reads `STOREIT_API_URL` from
-`frontend/.env` (copy `.env.example` there), defaulting to
-`http://127.0.0.1:4002`.
+Both servers proxy `/api` requests to `STOREIT_API_URL`, so the browser uses the
+same origin for ManageIt and StoreIt and no separate StoreIt CORS setting is
+needed. On this host, open `https://manageit.ai3d.com.au:2400/`; Caddy proxies
+that hostname to `127.0.0.1:2402`, keeping the frontend server bound to
+loopback.
 
 Projects have a unique three-digit code and a saved color. The Projects page supports preset and custom colors; development startup assigns codes to existing projects and gives them the default orange color.
 
-StoreIt contains the shared user table and both app data sets. The migration
-preserves ClockIt's user UUIDs and password hashes, and imports ClockIt and
-ManageIt data into separate tables. The legacy ClockIt and ManageIt backend
-folders were removed after the imported data was verified.
+StoreIt owns the shared user table and ManageIt data tables. Database creation
+and any one-time legacy imports are managed from StoreIt; they are not required
+to run this frontend.
 
 ## Project structure
 
 ```text
 frontend/
+  server.js                 Production static server and StoreIt API proxy
+  proxy.conf.js             Angular development proxy
   src/app/core/models/       Shared project and task types
   src/app/core/services/     HTTP API services
   src/app/features/auth/     ClockedIn account sign-in
@@ -70,7 +64,9 @@ frontend/
 
 The app shell provides separate `/overview`, `/projects`, and `/calendar` pages. Opening a project from the project list navigates to its calendar using the `project` query parameter. The Projects page separates active and archived projects; archived projects can be restored or permanently deleted from their **…** menu. Archiving a project hides it and its tasks from active views without changing task archive flags. Permanently deleting a project also deletes its tasks and dependencies.
 
-Tasks created from the Calendar form are top-level; use a task's **+** action to add a subtask, which starts with the parent's dates and can be edited from its **…** menu. Choose **+ Add milestone** to create a standalone single-date marker; milestones appear as diamonds and can participate in dependencies. Use **… → Edit task** to update task details. Drag task bars to move them on the timeline and drag either end to resize their dates; milestones move as a point and cannot be resized. Parent/subtask date limits are enforced. Drag the outer right dependency handle onto another task to make the dragged task its prerequisite; use the outer left handle to make the dropped task the prerequisite. Dependency cycles and links between different projects are rejected, and links can be removed from the dependency list below the timeline. Calendar's **Active** and **Archived** views let the team archive and restore individual tasks; archived parents hide their subtasks in active views. Permanently deleting a task also deletes its subtasks and dependencies.
+Tasks created from the Calendar form are top-level; use a task's **+** action to add a subtask, which starts with the parent's dates and can be edited from its **…** menu. Choose **+ Add milestone** to create a standalone single-date marker; milestones appear as diamonds and can participate in dependencies. Use **… → Edit task** to update task details. Drag task bars to move them on the timeline and drag either end to resize their dates; moving a parent shifts its subtasks by the same number of days, while resizing a parent must still contain its subtasks. Milestones move as a point and cannot be resized. Drag the outer right dependency handle onto another task to make the dragged task its prerequisite; use the outer left handle to make the dropped task the prerequisite. Dependency cycles and links between different projects are rejected, and links can be removed from the dependency list below the timeline. Calendar's **Active** and **Archived** views let the team archive and restore individual tasks; archived parents hide their subtasks in active views. Permanently deleting a task also deletes its subtasks and dependencies.
+
+Use **Import Gantt XML** in a project's Calendar to preview and append a GanttPRO or Microsoft Project XML export to that project. The importer carries task names, start/end dates, assignees, progress, milestones, one level of subtasks, and predecessor links. When the XML omits finish dates, it calculates them from task durations and the exported work calendar. The exported project-summary row is omitted because the import is added to the selected ManageIt project. ManageIt does not store Gantt descriptions, costs, or predecessor link types/lag; those are not imported. Importing appends tasks and does not update or deduplicate existing tasks. If task creation fails partway through, the importer attempts to remove the tasks it created.
 
 Generate frontend components and services through Angular CLI:
 
@@ -107,6 +103,5 @@ Set-Location ..\ManageIt\frontend
 npm run build
 ```
 
-StoreIt's schema command creates missing tables only; it does not alter or drop
-legacy databases. The legacy migration defaults to a read-only check. Review
-and back up source databases before invoking the explicit import command.
+This repository contains only the ManageIt frontend. StoreIt remains the
+source of truth for authentication, API behavior, and PostgreSQL data.

@@ -16,6 +16,7 @@
           aria-label="Project"
           [ngModel]="selectedProjectId()"
           (ngModelChange)="selectProjectById($event)"
+          [disabled]="importingGantt()"
         >
           <option *ngFor="let project of projects()" [value]="project.id">
             {{ project.projectCode }} · {{ project.name }}
@@ -88,9 +89,10 @@
           </button>
         </section>
       </div>
-      <button class="btn btn-secondary" type="button" (click)="loadTasks()" aria-label="Refresh tasks" [disabled]="!selectedProjectId()">Refresh</button>
-      <button class="btn btn-primary" type="button" (click)="openTaskForm()" [disabled]="!selectedProjectId() || archivedView()">+ Add task</button>
-      <button class="btn btn-secondary" type="button" (click)="openMilestoneForm()" [disabled]="!selectedProjectId() || archivedView()">+ Add milestone</button>
+      <button class="btn btn-secondary" type="button" (click)="loadTasks()" aria-label="Refresh tasks" [disabled]="!selectedProjectId() || importingGantt()">Refresh</button>
+      <button class="btn btn-secondary" type="button" (click)="openGanttImport()" [disabled]="!selectedProjectId() || archivedView()">Import Gantt XML</button>
+      <button class="btn btn-primary" type="button" (click)="openTaskForm()" [disabled]="!selectedProjectId() || archivedView() || importingGantt()">+ Add task</button>
+      <button class="btn btn-secondary" type="button" (click)="openMilestoneForm()" [disabled]="!selectedProjectId() || archivedView() || importingGantt()">+ Add milestone</button>
     </div>
   </header>
 
@@ -109,6 +111,70 @@
   </section>
 
   <ng-container *ngIf="selectedProject() as project">
+    <section class="gantt-import-panel card" *ngIf="showGanttImport()" aria-labelledby="gantt-import-heading">
+      <header class="task-edit-heading">
+        <div>
+          <div class="eyebrow">Import into {{ project.name }}</div>
+          <h2 id="gantt-import-heading">Import a Gantt XML file</h2>
+        </div>
+        <button class="icon-button" type="button" (click)="closeGanttImport()" [disabled]="importingGantt()" aria-label="Close Gantt import">×</button>
+      </header>
+      <p class="gantt-import-help">
+        Choose an XML export from GanttPRO or Microsoft Project. ManageIt imports task names, dates, assignees, progress, milestones, hierarchy, and predecessor links. Existing tasks are left unchanged.
+      </p>
+      <p class="gantt-import-help">
+        The exported project summary is omitted. ManageIt supports top-level tasks and one subtask level; missing finish dates are calculated from the XML duration and work calendar.
+      </p>
+      <label class="form-field">
+        <span>Gantt XML file</span>
+        <input
+          type="file"
+          accept=".xml,application/xml,text/xml"
+          (change)="selectGanttImportFile($event)"
+          [disabled]="parsingGantt() || importingGantt()"
+        >
+      </label>
+      <p class="subtitle" *ngIf="parsingGantt()" role="status">Reading and validating the XML file…</p>
+      <p class="subtitle" *ngIf="ganttImportMessage()" role="status">{{ ganttImportMessage() }}</p>
+      <ng-container *ngIf="ganttImportPreview() as preview">
+        <div class="gantt-import-summary">
+          <strong>{{ preview.tasks.length }} tasks</strong>
+          <span>{{ preview.dependencies.length }} predecessor links</span>
+          <span>Source: {{ preview.projectName }}</span>
+        </div>
+        <ul class="gantt-import-issues gantt-import-errors" *ngIf="preview.errors.length" aria-label="Import errors">
+          <li *ngFor="let issue of preview.errors">{{ issue }}</li>
+        </ul>
+        <ul class="gantt-import-issues gantt-import-warnings" *ngIf="preview.warnings.length" aria-label="Import warnings">
+          <li *ngFor="let warning of preview.warnings">{{ warning }}</li>
+        </ul>
+        <div class="gantt-import-preview list-view" *ngIf="preview.tasks.length">
+          <table>
+            <thead>
+              <tr><th>Task</th><th>Start</th><th>Due</th><th>Level</th></tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let task of preview.tasks.slice(0, 8)">
+                <td [class.subtask-name-cell]="task.parentSourceId">{{ task.name }}</td>
+                <td>{{ task.startDate | date:'mediumDate' }}</td>
+                <td>{{ task.dueDate | date:'mediumDate' }}</td>
+                <td>{{ task.parentSourceId ? 'Subtask' : 'Task' }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="subtitle" *ngIf="preview.tasks.length > 8">
+            Showing 8 of {{ preview.tasks.length }} tasks.
+          </p>
+        </div>
+      </ng-container>
+      <div class="task-form-actions">
+        <button class="btn btn-secondary" type="button" (click)="closeGanttImport()" [disabled]="importingGantt()">Cancel</button>
+        <button class="btn btn-primary" type="button" (click)="importGantt()" [disabled]="!canImportGantt()">
+          {{ importingGantt() ? 'Importing…' : 'Import tasks' }}
+        </button>
+      </div>
+    </section>
+
     <form class="task-form card" *ngIf="showTaskForm() && !archivedView()" (ngSubmit)="createTask()">
       <label class="task-field task-name-field">
         {{ creatingMilestone() ? 'Milestone name' : 'Task name' }}

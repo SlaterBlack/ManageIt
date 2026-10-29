@@ -84,6 +84,20 @@
   gap: var(--space-xs);
 }
 
+.gantt-import-panel {
+  display: grid;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+}
+
+.gantt-import-errors {
+  color: #a12e26;
+}
+
+.gantt-import-warnings {
+  color: #765a18;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
