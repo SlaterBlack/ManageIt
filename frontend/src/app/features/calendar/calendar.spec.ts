@@ -134,7 +134,7 @@ describe('Calendar group changes', () => {
     expect(menu.querySelector('[name="editedTaskAssignee"]')).not.toBeNull();
     expect(menu.querySelector('[name="editedTaskStatus"]')).not.toBeNull();
     expect(menu.querySelector('[name="editedTaskProgress"]')).not.toBeNull();
-    expect(menu.querySelector('[name="editedTaskColor"]')).not.toBeNull();
+    expect(menu.querySelector('app-project-color-picker')).not.toBeNull();
     expect(menu.querySelector('[name="editedTaskStartDate"]')).not.toBeNull();
     expect(menu.querySelector('[name="editedTaskDueDate"]')).not.toBeNull();
   });

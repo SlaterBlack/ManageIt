@@ -255,10 +255,18 @@
               <input type="number" name="editedTaskProgress" [(ngModel)]="editedTaskProgress" min="0" max="100" step="1" required [disabled]="savingTask()">
             </label>
           </fieldset>
-          <label class="task-menu-field task-menu-color">
-            Task colour
-            <input type="color" name="editedTaskColor" [(ngModel)]="editedTaskColor" [disabled]="savingTask()">
-          </label>
+          <div class="task-menu-color">
+            <span>Task colour</span>
+            <app-project-color-picker
+              [color]="editedTaskColor"
+              [label]="'Change colour for ' + task.name"
+              [displayLabel]="task.name"
+              [compact]="true"
+              [floatingPopover]="true"
+              [disabled]="savingTask()"
+              (pickedColor)="editedTaskColor = $event"
+            />
+          </div>
           <fieldset class="task-menu-fieldset">
             <legend>{{ task.isMilestone ? 'Milestone date' : 'Dates' }}</legend>
             <label>

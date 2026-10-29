@@ -17,6 +17,7 @@
   <div
     class="color-popover"
     *ngIf="isOpen()"
+    [class.is-floating]="floatingPopover"
     [attr.aria-label]="'Choose color for ' + displayLabel"
   >
     <span class="color-popover-title">Project color</span>

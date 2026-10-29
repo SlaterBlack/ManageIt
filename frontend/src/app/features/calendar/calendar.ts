@@ -15,6 +15,7 @@ import { Task, TaskStatus, TaskUpdate } from '../../core/models/task.model';
 import { TaskDependency } from '../../core/models/task-dependency.model';
 import { ProjectsService } from '../../core/services/projects';
 import { TasksService } from '../../core/services/tasks';
+import { ProjectColorPicker } from '../projects/project-color-picker';
 import {
   GanttImportPreview,
   GanttImporter,
@@ -51,7 +52,7 @@ interface TaskDates {
 
 @Component({
   selector: 'app-calendar',
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink, ProjectColorPicker],
   templateUrl: './calendar.html',
   styleUrl: './calendar.scss',
 })
@@ -1118,7 +1119,9 @@ export class Calendar {
     }
     if (
       event.target instanceof Element &&
-      !event.target.closest('.task-actions, .task-edit-menu')
+      !event.target.closest(
+        '.task-actions, .task-edit-menu, .color-popover.is-floating',
+      )
     ) {
       this.cancelTaskEdit();
     }

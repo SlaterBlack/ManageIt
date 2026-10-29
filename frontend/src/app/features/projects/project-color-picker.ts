@@ -39,15 +39,26 @@ export class ProjectColorPicker {
   @Input() label = 'Project color';
   @Input() displayLabel = 'Project color';
   @Input() compact = false;
+  @Input() floatingPopover = false;
   @Input() disabled = false;
   @Output() pickedColor = new EventEmitter<string>();
 
   readonly isOpen = signal(false);
   readonly colorOptions = PROJECT_COLOR_OPTIONS;
+  private floatingPopoverElement: HTMLElement | null = null;
+
+  ngOnDestroy(): void {
+    this.floatingPopoverElement?.remove();
+    this.floatingPopoverElement = null;
+  }
 
   togglePicker(): void {
     if (!this.disabled) {
-      this.isOpen.update((isOpen) => !isOpen);
+      const opening = !this.isOpen();
+      this.isOpen.set(opening);
+      if (opening && this.floatingPopover) {
+        requestAnimationFrame(() => this.movePopoverToViewport());
+      }
     }
   }
 
@@ -62,8 +73,28 @@ export class ProjectColorPicker {
   @HostListener('document:click', ['$event'])
   closeOnOutsideClick(event: MouseEvent): void {
     const target = event.target;
-    if (target instanceof Node && !this.elementRef.nativeElement.contains(target)) {
+    if (
+      target instanceof Node &&
+      !this.elementRef.nativeElement.contains(target) &&
+      !this.floatingPopoverElement?.contains(target)
+    ) {
       this.isOpen.set(false);
+      this.floatingPopoverElement?.remove();
+      this.floatingPopoverElement = null;
     }
+  }
+
+  private movePopoverToViewport(): void {
+    if (!this.isOpen() || !this.floatingPopover) {
+      return;
+    }
+    const popover = this.elementRef.nativeElement.querySelector(
+      '.color-popover',
+    ) as HTMLElement | null;
+    if (!popover) {
+      return;
+    }
+    this.floatingPopoverElement = popover;
+    document.body.append(popover);
   }
 }
