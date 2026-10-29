@@ -16,7 +16,7 @@
           aria-label="Project"
           [ngModel]="selectedProjectId()"
           (ngModelChange)="selectProjectById($event)"
-          [disabled]="importingGantt()"
+          [disabled]="importingGantt() || groupChangeBusy() || savingTask()"
         >
           <option *ngFor="let project of projects()" [value]="project.id">
             {{ project.projectCode }} · {{ project.name }}
@@ -31,6 +31,7 @@
           [attr.aria-pressed]="!archivedView()"
           type="button"
           (click)="setArchivedView(false)"
+          [disabled]="groupChangeBusy() || savingTask()"
         >Active</button>
         <button
           class="btn"
@@ -39,6 +40,7 @@
           [attr.aria-pressed]="archivedView()"
           type="button"
           (click)="setArchivedView(true)"
+          [disabled]="groupChangeBusy() || savingTask()"
         >Archived</button>
       </div>
       <form class="search-form" *ngIf="searchOpen()" (ngSubmit)="$event.preventDefault()">
@@ -89,10 +91,8 @@
           </button>
         </section>
       </div>
-      <button class="btn btn-secondary" type="button" (click)="loadTasks()" aria-label="Refresh tasks" [disabled]="!selectedProjectId() || importingGantt()">Refresh</button>
-      <button class="btn btn-secondary" type="button" (click)="openGanttImport()" [disabled]="!selectedProjectId() || archivedView()">Import Gantt XML</button>
-      <button class="btn btn-primary" type="button" (click)="openTaskForm()" [disabled]="!selectedProjectId() || archivedView() || importingGantt()">+ Add task</button>
-      <button class="btn btn-secondary" type="button" (click)="openMilestoneForm()" [disabled]="!selectedProjectId() || archivedView() || importingGantt()">+ Add milestone</button>
+      <button class="btn btn-primary" type="button" (click)="openTaskForm()" [disabled]="!selectedProjectId() || archivedView() || importingGantt() || groupChangeBusy()">+ Add task</button>
+      <button class="btn btn-secondary" type="button" (click)="openMilestoneForm()" [disabled]="!selectedProjectId() || archivedView() || importingGantt() || groupChangeBusy()">+ Add milestone</button>
     </div>
   </header>
 
@@ -142,10 +142,10 @@
           <span>{{ preview.dependencies.length }} predecessor links</span>
           <span>Source: {{ preview.projectName }}</span>
         </div>
-        <ul class="gantt-import-issues gantt-import-errors" *ngIf="preview.errors.length" aria-label="Import errors">
+        <ul class="gantt-import-issues error-text" *ngIf="preview.errors.length" aria-label="Import errors">
           <li *ngFor="let issue of preview.errors">{{ issue }}</li>
         </ul>
-        <ul class="gantt-import-issues gantt-import-warnings" *ngIf="preview.warnings.length" aria-label="Import warnings">
+        <ul class="gantt-import-issues" *ngIf="preview.warnings.length" aria-label="Import warnings">
           <li *ngFor="let warning of preview.warnings">{{ warning }}</li>
         </ul>
         <div class="gantt-import-preview list-view" *ngIf="preview.tasks.length">
@@ -223,55 +223,85 @@
       </div>
     </form>
 
-    <form class="task-form task-edit-form card" *ngIf="editingTaskId() && !archivedView()" (ngSubmit)="saveTaskEdit()">
-      <div class="task-edit-heading">
-        <div>
-          <div class="eyebrow">Task details</div>
-          <strong>Edit task</strong>
+    <ng-template #taskMenu let-task="task">
+      <div
+        class="actions-menu task-edit-menu"
+        *ngIf="openTaskMenuId() === task.id"
+        role="dialog"
+        [attr.aria-label]="'Options for ' + task.name"
+      >
+        <form *ngIf="!archivedView() && !groupChangeMode()" (ngSubmit)="saveTaskEdit()">
+          <strong class="task-menu-title">Edit task</strong>
+          <label class="task-menu-field">
+            Rename
+            <input type="text" name="editedTaskName" [(ngModel)]="editedTaskName" maxlength="120" required [disabled]="savingTask()">
+          </label>
+          <label class="task-menu-field">
+            Assignee
+            <input type="text" name="editedTaskAssignee" [(ngModel)]="editedTaskAssignee" maxlength="120" [disabled]="savingTask()">
+          </label>
+          <fieldset class="task-menu-fieldset">
+            <legend>Task state and progress</legend>
+            <label>
+              State
+              <select name="editedTaskStatus" [(ngModel)]="editedTaskStatus" [disabled]="savingTask()">
+                <option value="not_started">Not started</option>
+                <option value="in_progress">In progress</option>
+                <option value="complete">Complete</option>
+              </select>
+            </label>
+            <label>
+              Progress (%)
+              <input type="number" name="editedTaskProgress" [(ngModel)]="editedTaskProgress" min="0" max="100" step="1" required [disabled]="savingTask()">
+            </label>
+          </fieldset>
+          <label class="task-menu-field task-menu-color">
+            Task colour
+            <input type="color" name="editedTaskColor" [(ngModel)]="editedTaskColor" [disabled]="savingTask()">
+          </label>
+          <fieldset class="task-menu-fieldset">
+            <legend>{{ task.isMilestone ? 'Milestone date' : 'Dates' }}</legend>
+            <label>
+              {{ task.isMilestone ? 'Date' : 'Start' }}
+              <input type="date" name="editedTaskStartDate" [(ngModel)]="editedTaskStartDate" required [disabled]="savingTask()">
+            </label>
+            <label *ngIf="!task.isMilestone">
+              Due
+              <input type="date" name="editedTaskDueDate" [(ngModel)]="editedTaskDueDate" required [disabled]="savingTask()">
+            </label>
+          </fieldset>
+          <div class="task-menu-buttons">
+            <button class="btn btn-secondary" type="button" (click)="cancelTaskEdit()" [disabled]="savingTask()">Cancel</button>
+            <button class="btn btn-primary" type="submit" [disabled]="!canSaveTaskEdit()">
+              {{ savingTask() ? 'Saving…' : 'Save changes' }}
+            </button>
+          </div>
+        </form>
+        <div class="task-menu-actions">
+          <button
+            *ngIf="!archivedView()"
+            type="button"
+            [disabled]="isUpdatingTask(task.id) || groupChangeBusy() || savingTask()"
+            (click)="archiveTask(task)"
+          >Archive task</button>
+          <button
+            *ngIf="archivedView()"
+            type="button"
+            [disabled]="isUpdatingTask(task.id) || groupChangeBusy() || savingTask()"
+            (click)="restoreTask(task)"
+          >Restore task</button>
+          <button
+            class="delete-action"
+            type="button"
+            [disabled]="isUpdatingTask(task.id) || groupChangeBusy() || savingTask()"
+            (click)="deleteTask(task)"
+          >Delete permanently</button>
         </div>
-        <button
-          class="icon-button"
-          type="button"
-          aria-label="Close task editor"
-          (click)="cancelTaskEdit()"
-          [disabled]="savingTask()"
-        >×</button>
       </div>
-      <label class="task-field">
-        {{ editingTaskIsMilestone() ? 'Milestone name' : 'Task name' }}
-        <input type="text" name="editedTaskName" [(ngModel)]="editedTaskName" maxlength="120" required>
-      </label>
-      <label class="task-field">
-        Assignee
-        <input type="text" name="editedTaskAssignee" [(ngModel)]="editedTaskAssignee" maxlength="120">
-      </label>
-      <label class="task-field">
-        {{ editingTaskIsMilestone() ? 'Milestone date' : 'Start date' }}
-        <input type="date" name="editedTaskStartDate" [(ngModel)]="editedTaskStartDate" required>
-      </label>
-      <label class="task-field" *ngIf="!editingTaskIsMilestone()">
-        Due date
-        <input type="date" name="editedTaskDueDate" [(ngModel)]="editedTaskDueDate" required>
-      </label>
-      <label class="task-field">
-        Progress
-        <input type="number" name="editedTaskProgress" [(ngModel)]="editedTaskProgress" min="0" max="100" step="1" required>
-      </label>
-      <label class="task-field">
-        Status
-        <select name="editedTaskStatus" [(ngModel)]="editedTaskStatus">
-          <option value="not_started">Not started</option>
-          <option value="in_progress">In progress</option>
-          <option value="complete">Complete</option>
-        </select>
-      </label>
-      <div class="task-edit-actions task-form-actions">
-        <button class="btn btn-secondary" type="button" (click)="cancelTaskEdit()" [disabled]="savingTask()">Cancel</button>
-        <button class="btn btn-primary" type="submit" [disabled]="!canSaveTaskEdit()">
-          {{ savingTask() ? 'Saving…' : 'Save changes' }}
-        </button>
-      </div>
-    </form>
+    </ng-template>
+    <ng-container *ngIf="activeTaskMenu() as task">
+      <ng-container *ngTemplateOutlet="taskMenu; context: { task: task }"></ng-container>
+    </ng-container>
 
     <section class="stats-row" aria-label="Project summary">
       <article class="stat-card card">
@@ -299,8 +329,23 @@
           <button class="view-tab" type="button" [class.active]="viewMode() === 'timeline'" (click)="setViewMode('timeline')">Timeline</button>
           <button class="view-tab" type="button" [class.active]="viewMode() === 'list'" (click)="setViewMode('list')">List</button>
         </div>
-        <div class="timeline-controls" *ngIf="viewMode() === 'timeline'">
-          <button class="btn btn-secondary today-button" type="button" (click)="scrollToToday()">Today</button>
+      </div>
+      <div class="timeline-toolbar">
+        <div class="timeline-controls title-actions schedule-actions" role="toolbar" aria-label="Schedule tools">
+          <button class="btn btn-secondary" type="button" (click)="loadTasks()" [disabled]="!selectedProjectId() || importingGantt() || groupChangeBusy()">Refresh</button>
+          <button class="btn btn-secondary" type="button" (click)="openGanttImport()" [disabled]="!selectedProjectId() || archivedView() || importingGantt() || groupChangeBusy()">Import Gantt XML</button>
+          <button
+            class="btn"
+            [class.btn-primary]="groupChangeMode()"
+            [class.btn-secondary]="!groupChangeMode()"
+            type="button"
+            (click)="toggleGroupChange()"
+            [disabled]="groupChangeBusy() || (!!editingTaskId() && !groupChangeMode())"
+            [attr.aria-pressed]="groupChangeMode()"
+          >{{ groupChangeMode() ? 'Exit group change' : 'Group change' }}</button>
+        </div>
+        <div class="timeline-controls title-actions" *ngIf="viewMode() === 'timeline'">
+          <button class="btn btn-secondary" type="button" (click)="scrollToToday()">Today</button>
           <button class="zoom-button" type="button" (click)="changeZoom(-4)" aria-label="Zoom out">−</button>
           <span class="zoom-label">{{ zoomLabel() }}</span>
           <button class="zoom-button" type="button" (click)="changeZoom(4)" aria-label="Zoom in">+</button>
@@ -308,14 +353,41 @@
             <button class="icon-button menu-button" type="button" (click)="toggleMoreActions()" aria-label="More timeline actions" [attr.aria-expanded]="moreActionsOpen()">⋯</button>
             <div class="actions-menu" *ngIf="moreActionsOpen()">
               <button type="button" (click)="exportTasksCsv()">Export tasks as CSV</button>
-              <button type="button" (click)="loadTasks()">Refresh tasks</button>
             </div>
           </div>
         </div>
       </div>
 
+      <section class="dependency-list title-actions compact-toolbar" *ngIf="groupChangeMode()" aria-label="Group task changes">
+        <strong>Group change: {{ groupSelectedCount() }} selected</strong>
+        <button class="btn btn-secondary" type="button" (click)="selectVisibleTasks()" [disabled]="groupChangeBusy()">Select visible</button>
+        <button class="btn btn-secondary" type="button" (click)="clearSelectedTasks()" [disabled]="!groupSelectedCount() || groupChangeBusy()">Clear</button>
+        <label class="task-field">
+          Color
+          <input type="color" name="groupColor" [(ngModel)]="groupColor" [disabled]="!groupSelectedCount() || groupChangeBusy()">
+        </label>
+        <button class="btn btn-secondary" type="button" (click)="applyGroupColor()" [disabled]="!groupSelectedCount() || groupChangeBusy()">Set color</button>
+        <label class="task-field">
+          Status
+          <select
+            name="groupStatus"
+            [(ngModel)]="groupStatus"
+            [disabled]="!groupSelectedCount() || groupChangeBusy()"
+            aria-describedby="group-completion-help"
+            title="Complete sets progress to 100%; Not started sets it to 0%; In progress preserves the current percentage."
+          >
+            <option value="not_started">Not started</option>
+            <option value="in_progress">In progress</option>
+            <option value="complete">Complete</option>
+          </select>
+        </label>
+        <span class="visually-hidden" id="group-completion-help">Complete sets progress to 100%; Not started sets it to 0%; In progress preserves the current percentage.</span>
+        <button class="btn btn-secondary" type="button" (click)="applyGroupStatus()" [disabled]="!groupSelectedCount() || groupChangeBusy()">Set status</button>
+        <span *ngIf="groupChangeBusy()" role="status">Applying…</span>
+      </section>
+
       <div class="loading-state" *ngIf="loadingTasks()">Loading tasks…</div>
-      <div class="timeline-scroll" *ngIf="!loadingTasks() && viewMode() === 'timeline'">
+      <div class="timeline-scroll" *ngIf="!loadingTasks() && viewMode() === 'timeline'" (scroll)="closeTaskMenuOnScroll()">
         <div
           class="timeline-grid"
           [style.--day-count]="timelineDays().length"
@@ -333,8 +405,18 @@
                 <span class="task-status" [class.active]="row.task.status === 'in_progress'" [class.done]="row.task.status === 'complete'">
                   {{ row.task.status === 'complete' ? '✓' : '' }}
                 </span>
+                <input
+                  *ngIf="groupChangeMode()"
+                  class="task-select"
+                  type="checkbox"
+                  [checked]="selectedTaskIds().has(row.task.id)"
+                  [disabled]="groupChangeBusy() || isUpdatingTask(row.task.id)"
+                  [attr.aria-label]="'Select ' + row.task.name"
+                  (change)="setTaskSelected(row.task.id, $event)"
+                >
                 <div class="task-meta">
                   <span class="task-name" [title]="row.task.name">
+                    <span class="task-color-dot" [style.background-color]="row.task.color" aria-hidden="true"></span>
                     <span class="subtask-prefix" *ngIf="row.depth">↳</span>
                     {{ row.task.name }}
                   </span>
@@ -345,7 +427,7 @@
                     class="add-subtask-button"
                     *ngIf="!archivedView() && !row.depth && !row.task.isMilestone"
                     type="button"
-                    [disabled]="creatingSubtaskIds().has(row.task.id)"
+                    [disabled]="creatingSubtaskIds().has(row.task.id) || groupChangeBusy()"
                     [attr.aria-label]="'Add subtask to ' + row.task.name"
                     title="Add generic subtask"
                     (click)="addSubtask(row.task)"
@@ -356,27 +438,11 @@
                       type="button"
                       [attr.aria-label]="'More options for ' + row.task.name"
                       [attr.aria-expanded]="openTaskMenuId() === row.task.id"
-                      aria-haspopup="menu"
+                      aria-haspopup="dialog"
                       title="More task options"
-                      [disabled]="isUpdatingTask(row.task.id)"
-                      (click)="toggleTaskMenu(row.task.id)"
+                      [disabled]="isUpdatingTask(row.task.id) || groupChangeBusy() || savingTask()"
+                      (click)="toggleTaskMenu(row.task)"
                     >…</button>
-                    <div class="actions-menu" *ngIf="openTaskMenuId() === row.task.id" role="menu">
-                      <button *ngIf="!archivedView()" type="button" role="menuitem" (click)="startEditingTask(row.task)">Edit task</button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        [disabled]="isUpdatingTask(row.task.id)"
-                        (click)="row.task.isArchived ? restoreTask(row.task) : archiveTask(row.task)"
-                      >{{ row.task.isArchived ? 'Restore task' : 'Archive task' }}</button>
-                      <button
-                        class="delete-action"
-                        type="button"
-                        role="menuitem"
-                        [disabled]="isUpdatingTask(row.task.id)"
-                        (click)="deleteTask(row.task)"
-                      >Delete permanently</button>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -447,6 +513,7 @@
                 [class.bar-complete]="row.task.status === 'complete'"
                 [class.bar-subtask]="row.depth > 0"
                 [class.bar-milestone]="row.task.isMilestone"
+                [style.--task-color]="row.task.color"
                 [style.left.%]="taskOffset(row.task)"
                 [style.width.%]="row.task.isMilestone ? null : taskWidth(row.task)"
                 [attr.aria-label]="(row.task.isMilestone ? 'Milestone: ' : '') + row.task.name + ', ' + row.task.startDate + (row.task.isMilestone ? '' : ' to ' + row.task.dueDate)"
@@ -497,14 +564,25 @@
         </div>
       </div>
 
-      <div class="list-view" *ngIf="!loadingTasks() && viewMode() === 'list'">
+      <div class="list-view" *ngIf="!loadingTasks() && viewMode() === 'list'" (scroll)="closeTaskMenuOnScroll()">
         <table>
           <thead>
-            <tr><th>Task</th><th>Assignee</th><th>Start</th><th>Due</th><th>Status</th><th>Progress</th><th>Actions</th></tr>
+            <tr><th *ngIf="groupChangeMode()">Select</th><th>Task</th><th>Assignee</th><th>Start</th><th>Due</th><th>Status</th><th>Progress</th><th>Actions</th></tr>
           </thead>
           <tbody>
             <tr *ngFor="let row of timelineTasks(); trackBy: trackTimelineTask">
+              <td *ngIf="groupChangeMode()">
+                <input
+                  class="task-select"
+                  type="checkbox"
+                  [checked]="selectedTaskIds().has(row.task.id)"
+                  [disabled]="groupChangeBusy() || isUpdatingTask(row.task.id)"
+                  [attr.aria-label]="'Select ' + row.task.name"
+                  (change)="setTaskSelected(row.task.id, $event)"
+                >
+              </td>
               <td [class.subtask-name-cell]="row.depth">
+                <span class="task-color-dot" [style.background-color]="row.task.color" aria-hidden="true"></span>
                 <span class="subtask-prefix" *ngIf="row.depth">↳</span>
                 <span class="milestone-badge" *ngIf="row.task.isMilestone">Milestone</span>
                 {{ row.task.name }}
@@ -520,7 +598,7 @@
                     class="add-subtask-button"
                     *ngIf="!archivedView() && !row.depth && !row.task.isMilestone"
                     type="button"
-                    [disabled]="creatingSubtaskIds().has(row.task.id)"
+                    [disabled]="creatingSubtaskIds().has(row.task.id) || groupChangeBusy()"
                     [attr.aria-label]="'Add subtask to ' + row.task.name"
                     title="Add generic subtask"
                     (click)="addSubtask(row.task)"
@@ -531,31 +609,15 @@
                       type="button"
                       [attr.aria-label]="'More options for ' + row.task.name"
                       [attr.aria-expanded]="openTaskMenuId() === row.task.id"
-                      aria-haspopup="menu"
-                      [disabled]="isUpdatingTask(row.task.id)"
-                      (click)="toggleTaskMenu(row.task.id)"
+                      aria-haspopup="dialog"
+                      [disabled]="isUpdatingTask(row.task.id) || groupChangeBusy() || savingTask()"
+                      (click)="toggleTaskMenu(row.task)"
                     >…</button>
-                    <div class="actions-menu" *ngIf="openTaskMenuId() === row.task.id" role="menu">
-                      <button *ngIf="!archivedView()" type="button" role="menuitem" (click)="startEditingTask(row.task)">Edit task</button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        [disabled]="isUpdatingTask(row.task.id)"
-                        (click)="row.task.isArchived ? restoreTask(row.task) : archiveTask(row.task)"
-                      >{{ row.task.isArchived ? 'Restore task' : 'Archive task' }}</button>
-                      <button
-                        class="delete-action"
-                        type="button"
-                        role="menuitem"
-                        [disabled]="isUpdatingTask(row.task.id)"
-                        (click)="deleteTask(row.task)"
-                      >Delete permanently</button>
-                    </div>
                   </div>
                 </div>
               </td>
             </tr>
-            <tr *ngIf="!timelineTasks().length"><td colspan="7">{{ emptyTaskMessage() }}</td></tr>
+            <tr *ngIf="!timelineTasks().length"><td [attr.colspan]="groupChangeMode() ? 8 : 7">{{ emptyTaskMessage() }}</td></tr>
           </tbody>
         </table>
       </div>

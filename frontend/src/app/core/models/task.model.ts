@@ -7,6 +7,7 @@ export interface Task {
   isMilestone: boolean;
   isArchived: boolean;
   name: string;
+  color: string;
   assignee: string;
   startDate: string;
   dueDate: string;
@@ -33,4 +34,5 @@ export interface TaskUpdate {
   progress?: number;
   status?: TaskStatus;
   isArchived?: boolean;
+  color?: string;
 }

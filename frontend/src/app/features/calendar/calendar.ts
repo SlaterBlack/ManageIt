@@ -11,7 +11,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom, forkJoin } from 'rxjs';
 import { Project } from '../../core/models/project.model';
-import { Task, TaskStatus } from '../../core/models/task.model';
+import { Task, TaskStatus, TaskUpdate } from '../../core/models/task.model';
 import { TaskDependency } from '../../core/models/task-dependency.model';
 import { ProjectsService } from '../../core/services/projects';
 import { TasksService } from '../../core/services/tasks';
@@ -86,6 +86,16 @@ export class Calendar {
   readonly taskTimelineDrag = signal<TaskTimelineDrag | null>(null);
   readonly editingTaskId = signal<string | null>(null);
   readonly openTaskMenuId = signal<string | null>(null);
+  readonly activeTaskMenu = computed(() =>
+    this.tasks().find((task) => task.id === this.openTaskMenuId()),
+  );
+  readonly groupChangeMode = signal(false);
+  readonly groupChangeBusy = signal(false);
+  readonly selectedTaskIds = signal<ReadonlySet<string>>(new Set());
+  readonly groupSelectedCount = computed(() => {
+    const selectedIds = this.selectedTaskIds();
+    return this.displayedTasks().filter((task) => selectedIds.has(task.id)).length;
+  });
   readonly savingTask = signal(false);
   readonly creatingSubtaskIds = signal<ReadonlySet<string>>(new Set());
   readonly updatingTaskIds = signal<ReadonlySet<string>>(new Set());
@@ -220,6 +230,9 @@ export class Calendar {
   editedTaskDueDate = '';
   editedTaskProgress = 0;
   editedTaskStatus: TaskStatus = 'not_started';
+  editedTaskColor = '#D87535';
+  groupColor = '#D87535';
+  groupStatus: TaskStatus = 'not_started';
   private projectsLoaded = false;
   private requestedProjectId = '';
   private loadedTaskProjectId = '';
@@ -256,10 +269,19 @@ export class Calendar {
   }
 
   selectProject(project: Project, updateUrl = true): void {
+    if (
+      (this.groupChangeBusy() || this.savingTask()) &&
+      this.selectedProjectId() !== project.id
+    ) {
+      return;
+    }
     const changed = this.selectedProjectId() !== project.id;
     this.selectedProjectId.set(project.id);
     localStorage.setItem(this.selectedProjectStorageKey, project.id);
     if (changed) {
+      this.openTaskMenuId.set(null);
+      this.editingTaskId.set(null);
+      this.resetGroupChange();
       this.closeGanttImport();
       this.tasks.set([]);
       this.dependencies.set([]);
@@ -286,7 +308,7 @@ export class Calendar {
   }
 
   selectProjectById(id: string): void {
-    if (this.importingGantt()) {
+    if (this.importingGantt() || this.savingTask()) {
       return;
     }
     const project = this.projects().find((item) => item.id === id);
@@ -294,9 +316,13 @@ export class Calendar {
   }
 
   setArchivedView(archived: boolean): void {
+    if (this.groupChangeBusy() || this.savingTask()) {
+      return;
+    }
     this.archivedView.set(archived);
     this.openTaskMenuId.set(null);
     this.editingTaskId.set(null);
+    this.resetGroupChange();
     this.showTaskForm.set(false);
     this.creatingMilestone.set(false);
     if (archived) {
@@ -577,6 +603,7 @@ export class Calendar {
     if (
       parent.parentTaskId ||
       parent.isMilestone ||
+      this.groupChangeBusy() ||
       this.creatingSubtaskIds().has(parent.id)
     ) {
       return;
@@ -629,7 +656,7 @@ export class Calendar {
     task: Task,
     side: 'before' | 'after',
   ): void {
-    if (this.archivedView()) {
+    if (this.archivedView() || this.groupChangeBusy()) {
       return;
     }
     event.preventDefault();
@@ -646,6 +673,7 @@ export class Calendar {
     if (
       event.button !== 0 ||
       this.dependencyDrag() ||
+      this.groupChangeBusy() ||
       this.archivedView() ||
       (task.isMilestone && mode !== 'move')
     ) {
@@ -725,10 +753,134 @@ export class Calendar {
     this.taskTimelineDrag.set(null);
   }
 
-  toggleTaskMenu(taskId: string): void {
-    this.openTaskMenuId.update((current) =>
-      current === taskId ? null : taskId,
+  toggleTaskMenu(task: Task): void {
+    if (this.savingTask()) {
+      return;
+    }
+    if (this.openTaskMenuId() === task.id) {
+      this.cancelTaskEdit();
+      return;
+    }
+    this.openTaskMenuId.set(task.id);
+    if (!this.archivedView() && !this.groupChangeMode()) {
+      this.startEditingTask(task);
+    } else {
+      this.editingTaskId.set(null);
+    }
+  }
+
+  toggleGroupChange(): void {
+    if (
+      this.groupChangeBusy() ||
+      (!this.groupChangeMode() && this.editingTaskId())
+    ) {
+      return;
+    }
+    if (this.groupChangeMode()) {
+      this.resetGroupChange();
+      return;
+    }
+    this.groupColor = this.selectedProject()?.color ?? '#D87535';
+    this.groupChangeMode.set(true);
+    this.selectedTaskIds.set(new Set());
+  }
+
+  setTaskSelected(taskId: string, event: Event): void {
+    const checkbox = event.currentTarget;
+    if (!(checkbox instanceof HTMLInputElement) || this.groupChangeBusy()) {
+      return;
+    }
+    this.selectedTaskIds.update((ids) => {
+      const next = new Set(ids);
+      if (checkbox.checked) {
+        next.add(taskId);
+      } else {
+        next.delete(taskId);
+      }
+      return next;
+    });
+  }
+
+  selectVisibleTasks(): void {
+    const next = new Set(this.selectedTaskIds());
+    for (const { task } of this.timelineTasks()) {
+      next.add(task.id);
+    }
+    this.selectedTaskIds.set(next);
+  }
+
+  clearSelectedTasks(): void {
+    this.selectedTaskIds.set(new Set());
+  }
+
+  applyGroupColor(): void {
+    void this.updateSelectedTasks({ color: this.groupColor });
+  }
+
+  applyGroupStatus(): void {
+    const update: TaskUpdate = { status: this.groupStatus };
+    if (this.groupStatus === 'complete') {
+      update.progress = 100;
+    } else if (this.groupStatus === 'not_started') {
+      update.progress = 0;
+    }
+    void this.updateSelectedTasks(update);
+  }
+
+  private async updateSelectedTasks(update: TaskUpdate): Promise<void> {
+    if (this.groupChangeBusy()) {
+      return;
+    }
+    const selectedIds = this.selectedTaskIds();
+    const selectedTasks = this.displayedTasks().filter((task) =>
+      selectedIds.has(task.id),
     );
+    if (!selectedTasks.length) {
+      return;
+    }
+
+    this.groupChangeBusy.set(true);
+    let updatedCount = 0;
+    try {
+      for (const task of selectedTasks) {
+        this.updatingTaskIds.update((ids) => new Set(ids).add(task.id));
+        try {
+          const updated = await firstValueFrom(
+            this.tasksApi.update(task.id, update),
+          );
+          this.tasks.update((tasks) =>
+            tasks.map((item) => (item.id === updated.id ? updated : item)),
+          );
+          this.selectedTaskIds.update((ids) => {
+            const next = new Set(ids);
+            next.delete(task.id);
+            return next;
+          });
+          updatedCount += 1;
+        } finally {
+          this.updatingTaskIds.update((ids) => {
+            const next = new Set(ids);
+            next.delete(task.id);
+            return next;
+          });
+        }
+      }
+      this.errorMessage.set('');
+    } catch (error: unknown) {
+      this.errorMessage.set(
+        `Applied the change to ${updatedCount} of ${selectedTasks.length} selected tasks. The remaining tasks are still selected. ${this.apiError(
+          error,
+          'Could not apply the group change.',
+        )}`,
+      );
+    } finally {
+      this.groupChangeBusy.set(false);
+    }
+  }
+
+  private resetGroupChange(): void {
+    this.groupChangeMode.set(false);
+    this.selectedTaskIds.set(new Set());
   }
 
   archiveTask(task: Task): void {
@@ -740,6 +892,9 @@ export class Calendar {
   }
 
   deleteTask(task: Task): void {
+    if (this.groupChangeBusy() || this.savingTask()) {
+      return;
+    }
     const descendants = this.tasks().filter(
       (item) => item.parentTaskId === task.id,
     );
@@ -751,11 +906,12 @@ export class Calendar {
         `Permanently delete "${task.name}"${cascadeDescription} and its dependencies? This cannot be undone.`,
       )
     ) {
-      this.openTaskMenuId.set(null);
+      this.cancelTaskEdit();
       return;
     }
 
     this.openTaskMenuId.set(null);
+    this.editingTaskId.set(null);
     this.updatingTaskIds.update((ids) => new Set(ids).add(task.id));
     this.tasksApi.delete(task.id).subscribe({
       next: () => {
@@ -766,6 +922,13 @@ export class Calendar {
         this.tasks.update((tasks) =>
           tasks.filter((item) => !deletedIds.has(item.id)),
         );
+        this.selectedTaskIds.update((ids) => {
+          const next = new Set(ids);
+          for (const id of deletedIds) {
+            next.delete(id);
+          }
+          return next;
+        });
         this.dependencies.update((dependencies) =>
           dependencies.filter(
             (dependency) =>
@@ -799,10 +962,14 @@ export class Calendar {
   }
 
   private setTaskArchived(task: Task, isArchived: boolean): void {
-    if (this.isUpdatingTask(task.id)) {
+    if (
+      this.isUpdatingTask(task.id) ||
+      this.groupChangeBusy() ||
+      this.savingTask()
+    ) {
       return;
     }
-    this.openTaskMenuId.set(null);
+    this.cancelTaskEdit();
     this.updatingTaskIds.update((ids) => new Set(ids).add(task.id));
     this.tasksApi.update(task.id, { isArchived }).subscribe({
       next: (updatedTask) => {
@@ -836,7 +1003,10 @@ export class Calendar {
   }
 
   startEditingTask(task: Task): void {
-    this.openTaskMenuId.set(null);
+    if (this.groupChangeBusy() || this.groupChangeMode() || this.savingTask()) {
+      return;
+    }
+    this.openTaskMenuId.set(task.id);
     this.editingTaskId.set(task.id);
     this.editedTaskName = task.name;
     this.editedTaskAssignee = task.assignee;
@@ -844,17 +1014,14 @@ export class Calendar {
     this.editedTaskDueDate = task.dueDate;
     this.editedTaskProgress = task.progress;
     this.editedTaskStatus = task.status;
-  }
-
-  editingTaskIsMilestone(): boolean {
-    return (
-      this.tasks().find((task) => task.id === this.editingTaskId())
-        ?.isMilestone ?? false
-    );
+    this.editedTaskColor = /^#[0-9a-f]{6}$/i.test(task.color ?? '')
+      ? task.color
+      : this.selectedProject()?.color ?? '#D87535';
   }
 
   cancelTaskEdit(): void {
     this.editingTaskId.set(null);
+    this.openTaskMenuId.set(null);
   }
 
   canSaveTaskEdit(): boolean {
@@ -863,6 +1030,9 @@ export class Calendar {
     const dueDate = task.isMilestone
       ? this.editedTaskStartDate
       : this.editedTaskDueDate;
+    const datesChanged =
+      this.editedTaskStartDate !== task.startDate ||
+      (!task.isMilestone && dueDate !== task.dueDate);
     const startShift = this.dayDifference(
       task.startDate,
       this.editedTaskStartDate,
@@ -871,22 +1041,26 @@ export class Calendar {
     const movesParent =
       !task.parentTaskId && startShift !== 0 && startShift === dueShift;
     const bounds = movesParent ? {} : this.taskDateBounds(task);
+    const datesValid =
+      !datesChanged ||
+      (Boolean(this.editedTaskStartDate) &&
+        Boolean(dueDate) &&
+        this.editedTaskStartDate <= dueDate &&
+        (!bounds.minimumStart ||
+          this.editedTaskStartDate >= bounds.minimumStart) &&
+        (!bounds.maximumStart ||
+          this.editedTaskStartDate <= bounds.maximumStart) &&
+        (!bounds.minimumDue || dueDate >= bounds.minimumDue) &&
+        (!bounds.maximumDue || dueDate <= bounds.maximumDue));
     return (
       Boolean(this.editedTaskName.trim()) &&
       this.editedTaskName.trim().length <= 120 &&
       this.editedTaskAssignee.trim().length <= 120 &&
-      Boolean(this.editedTaskStartDate) &&
-      Boolean(dueDate) &&
-      this.editedTaskStartDate <= dueDate &&
-      (!bounds.minimumStart ||
-        this.editedTaskStartDate >= bounds.minimumStart) &&
-      (!bounds.maximumStart ||
-        this.editedTaskStartDate <= bounds.maximumStart) &&
-      (!bounds.minimumDue || dueDate >= bounds.minimumDue) &&
-      (!bounds.maximumDue || dueDate <= bounds.maximumDue) &&
+      datesValid &&
       Number.isInteger(this.editedTaskProgress) &&
       this.editedTaskProgress >= 0 &&
       this.editedTaskProgress <= 100 &&
+      /^#[0-9a-f]{6}$/i.test(this.editedTaskColor) &&
       !this.savingTask()
     );
   }
@@ -897,18 +1071,26 @@ export class Calendar {
     if (!taskId || !task || !this.canSaveTaskEdit()) {
       return;
     }
+    const dueDate = task.isMilestone
+      ? this.editedTaskStartDate
+      : this.editedTaskDueDate;
+    const datesChanged =
+      this.editedTaskStartDate !== task.startDate ||
+      (!task.isMilestone && dueDate !== task.dueDate);
+    const update: TaskUpdate = {
+      name: this.editedTaskName.trim(),
+      assignee: this.editedTaskAssignee.trim(),
+      progress: this.editedTaskProgress,
+      status: this.editedTaskStatus,
+      color: this.editedTaskColor,
+    };
+    if (datesChanged) {
+      update.startDate = this.editedTaskStartDate;
+      update.dueDate = dueDate;
+    }
     this.savingTask.set(true);
     this.tasksApi
-      .update(taskId, {
-        name: this.editedTaskName.trim(),
-        assignee: this.editedTaskAssignee.trim(),
-        startDate: this.editedTaskStartDate,
-        dueDate: task.isMilestone
-          ? this.editedTaskStartDate
-          : this.editedTaskDueDate,
-        progress: this.editedTaskProgress,
-        status: this.editedTaskStatus,
-      })
+      .update(taskId, update)
       .subscribe({
         next: (updated) => {
           this.tasks.update((tasks) =>
@@ -916,6 +1098,7 @@ export class Calendar {
           );
           this.updateTimeline(this.displayedTasks());
           this.editingTaskId.set(null);
+          this.openTaskMenuId.set(null);
           this.savingTask.set(false);
           this.errorMessage.set('');
         },
@@ -930,11 +1113,21 @@ export class Calendar {
 
   @HostListener('document:click', ['$event'])
   closeTaskMenuOnOutsideClick(event: MouseEvent): void {
+    if (this.savingTask()) {
+      return;
+    }
     if (
       event.target instanceof Element &&
-      !event.target.closest('.task-actions')
+      !event.target.closest('.task-actions, .task-edit-menu')
     ) {
-      this.openTaskMenuId.set(null);
+      this.cancelTaskEdit();
+    }
+  }
+
+  @HostListener('window:scroll')
+  closeTaskMenuOnScroll(): void {
+    if (!this.savingTask()) {
+      this.cancelTaskEdit();
     }
   }
 
@@ -1245,6 +1438,7 @@ export class Calendar {
       return;
     }
 
+    this.resetGroupChange();
     this.selectedProjectId.set('');
     this.loadedTaskProjectId = '';
     this.requestedTaskProjectId = '';
