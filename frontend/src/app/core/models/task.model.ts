@@ -33,6 +33,7 @@ export interface TaskUpdate {
   dueDate?: string;
   progress?: number;
   status?: TaskStatus;
+  isMilestone?: boolean;
   isArchived?: boolean;
   color?: string;
 }

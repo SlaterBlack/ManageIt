@@ -241,7 +241,18 @@
             <input type="text" name="editedTaskAssignee" [(ngModel)]="editedTaskAssignee" maxlength="120" [disabled]="savingTask()">
           </label>
           <fieldset class="task-menu-fieldset">
-            <legend>Task state and progress</legend>
+            <legend>
+              <span>Task state and progress</span>
+              <app-project-color-picker
+                [color]="editedTaskColor"
+                [label]="'Change colour for ' + task.name"
+                [displayLabel]="task.name"
+                [compact]="true"
+                [floatingPopover]="true"
+                [disabled]="savingTask()"
+                (pickedColor)="editedTaskColor = $event"
+              />
+            </legend>
             <label>
               State
               <select name="editedTaskStatus" [(ngModel)]="editedTaskStatus" [disabled]="savingTask()">
@@ -255,25 +266,27 @@
               <input type="number" name="editedTaskProgress" [(ngModel)]="editedTaskProgress" min="0" max="100" step="1" required [disabled]="savingTask()">
             </label>
           </fieldset>
-          <div class="task-menu-color">
-            <span>Task colour</span>
-            <app-project-color-picker
-              [color]="editedTaskColor"
-              [label]="'Change colour for ' + task.name"
-              [displayLabel]="task.name"
-              [compact]="true"
-              [floatingPopover]="true"
-              [disabled]="savingTask()"
-              (pickedColor)="editedTaskColor = $event"
-            />
-          </div>
           <fieldset class="task-menu-fieldset">
-            <legend>{{ task.isMilestone ? 'Milestone date' : 'Dates' }}</legend>
+            <legend>Dates and task type</legend>
             <label>
-              {{ task.isMilestone ? 'Date' : 'Start' }}
+              Type
+              <select
+                name="editedTaskIsMilestone"
+                [(ngModel)]="editedTaskIsMilestone"
+                [disabled]="savingTask()"
+              >
+                <option [ngValue]="false">Task</option>
+                <option
+                  [ngValue]="true"
+                  [disabled]="!canConvertToMilestone(task)"
+                >Milestone</option>
+              </select>
+            </label>
+            <label>
+              {{ editedTaskIsMilestone ? 'Date' : 'Start' }}
               <input type="date" name="editedTaskStartDate" [(ngModel)]="editedTaskStartDate" required [disabled]="savingTask()">
             </label>
-            <label *ngIf="!task.isMilestone">
+            <label *ngIf="!editedTaskIsMilestone">
               Due
               <input type="date" name="editedTaskDueDate" [(ngModel)]="editedTaskDueDate" required [disabled]="savingTask()">
             </label>
@@ -410,9 +423,20 @@
                 [class.subtask-row]="row.depth > 0"
                 [style.--task-depth]="row.depth"
               >
-                <span class="task-status" [class.active]="row.task.status === 'in_progress'" [class.done]="row.task.status === 'complete'">
+                <button
+                  type="button"
+                  class="task-status"
+                  [class.active]="row.task.status === 'in_progress'"
+                  [class.done]="row.task.status === 'complete'"
+                  [style.--task-color]="taskColorForDisplay(row.task)"
+                  [disabled]="archivedView() || groupChangeBusy() || savingTask() || isUpdatingTask(row.task.id) || !!editingTaskId()"
+                  [attr.aria-label]="row.task.status === 'complete' ? 'Mark ' + row.task.name + ' not started' : 'Mark ' + row.task.name + ' complete'"
+                  [attr.aria-pressed]="row.task.status === 'complete'"
+                  [title]="row.task.status === 'complete' ? 'Mark not started' : 'Mark complete'"
+                  (click)="toggleTaskCompletion(row.task)"
+                >
                   {{ row.task.status === 'complete' ? '✓' : '' }}
-                </span>
+                </button>
                 <input
                   *ngIf="groupChangeMode()"
                   class="task-select"
@@ -424,7 +448,6 @@
                 >
                 <div class="task-meta">
                   <span class="task-name" [title]="row.task.name">
-                    <span class="task-color-dot" [style.background-color]="row.task.color" aria-hidden="true"></span>
                     <span class="subtask-prefix" *ngIf="row.depth">↳</span>
                     {{ row.task.name }}
                   </span>
@@ -521,7 +544,7 @@
                 [class.bar-complete]="row.task.status === 'complete'"
                 [class.bar-subtask]="row.depth > 0"
                 [class.bar-milestone]="row.task.isMilestone"
-                [style.--task-color]="row.task.color"
+                [style.--task-color]="taskColorForDisplay(row.task)"
                 [style.left.%]="taskOffset(row.task)"
                 [style.width.%]="row.task.isMilestone ? null : taskWidth(row.task)"
                 [attr.aria-label]="(row.task.isMilestone ? 'Milestone: ' : '') + row.task.name + ', ' + row.task.startDate + (row.task.isMilestone ? '' : ' to ' + row.task.dueDate)"
@@ -590,7 +613,6 @@
                 >
               </td>
               <td [class.subtask-name-cell]="row.depth">
-                <span class="task-color-dot" [style.background-color]="row.task.color" aria-hidden="true"></span>
                 <span class="subtask-prefix" *ngIf="row.depth">↳</span>
                 <span class="milestone-badge" *ngIf="row.task.isMilestone">Milestone</span>
                 {{ row.task.name }}
@@ -598,7 +620,23 @@
               <td>{{ row.task.assignee || 'Unassigned' }}</td>
               <td>{{ row.task.startDate | date:'mediumDate' }}</td>
               <td>{{ row.task.dueDate | date:'mediumDate' }}</td>
-              <td><span class="status-label" [class.done]="row.task.status === 'complete'">{{ row.task.status.replace('_', ' ') }}</span></td>
+              <td>
+                <span class="list-task-status">
+                  <button
+                    type="button"
+                    class="task-status"
+                    [class.active]="row.task.status === 'in_progress'"
+                    [class.done]="row.task.status === 'complete'"
+                    [style.--task-color]="taskColorForDisplay(row.task)"
+                    [disabled]="archivedView() || groupChangeBusy() || savingTask() || isUpdatingTask(row.task.id) || !!editingTaskId()"
+                    [attr.aria-label]="row.task.status === 'complete' ? 'Mark ' + row.task.name + ' not started' : 'Mark ' + row.task.name + ' complete'"
+                    [attr.aria-pressed]="row.task.status === 'complete'"
+                    [title]="row.task.status === 'complete' ? 'Mark not started' : 'Mark complete'"
+                    (click)="toggleTaskCompletion(row.task)"
+                  >{{ row.task.status === 'complete' ? '✓' : '' }}</button>
+                  <span class="status-label" [class.done]="row.task.status === 'complete'">{{ row.task.status.replace('_', ' ') }}</span>
+                </span>
+              </td>
               <td>{{ row.task.progress }}%</td>
               <td>
                 <div class="task-actions">

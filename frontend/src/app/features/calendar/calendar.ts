@@ -231,6 +231,7 @@ export class Calendar {
   editedTaskDueDate = '';
   editedTaskProgress = 0;
   editedTaskStatus: TaskStatus = 'not_started';
+  editedTaskIsMilestone = false;
   editedTaskColor = '#D87535';
   groupColor = '#D87535';
   groupStatus: TaskStatus = 'not_started';
@@ -850,7 +851,12 @@ export class Calendar {
             this.tasksApi.update(task.id, update),
           );
           this.tasks.update((tasks) =>
-            tasks.map((item) => (item.id === updated.id ? updated : item)),
+            this.tasksAfterTaskUpdate(
+              tasks,
+              tasks.find((item) => item.id === updated.id) ?? task,
+              updated,
+              update.status === 'complete',
+            ),
           );
           this.selectedTaskIds.update((ids) => {
             const next = new Set(ids);
@@ -962,6 +968,54 @@ export class Calendar {
     return this.updatingTaskIds().has(taskId);
   }
 
+  toggleTaskCompletion(task: Task): void {
+    if (
+      this.isUpdatingTask(task.id) ||
+      this.groupChangeBusy() ||
+      this.savingTask() ||
+      this.editingTaskId() ||
+      this.archivedView()
+    ) {
+      return;
+    }
+
+    const status = task.status === 'complete' ? 'not_started' : 'complete';
+    const update: TaskUpdate = {
+      status,
+      progress: status === 'complete' ? 100 : 0,
+    };
+    this.updatingTaskIds.update((ids) => new Set(ids).add(task.id));
+    this.tasksApi.update(task.id, update).subscribe({
+      next: (updatedTask) => {
+        this.tasks.update((tasks) =>
+          this.tasksAfterTaskUpdate(
+            tasks,
+            task,
+            updatedTask,
+            update.status === 'complete',
+          ),
+        );
+        this.updatingTaskIds.update((ids) => {
+          const nextIds = new Set(ids);
+          nextIds.delete(task.id);
+          return nextIds;
+        });
+        this.updateTimeline(this.displayedTasks());
+        this.errorMessage.set('');
+      },
+      error: (error: unknown) => {
+        this.updatingTaskIds.update((ids) => {
+          const nextIds = new Set(ids);
+          nextIds.delete(task.id);
+          return nextIds;
+        });
+        this.errorMessage.set(
+          this.apiError(error, 'Could not change the task status. Please try again.'),
+        );
+      },
+    });
+  }
+
   private setTaskArchived(task: Task, isArchived: boolean): void {
     if (
       this.isUpdatingTask(task.id) ||
@@ -1015,6 +1069,7 @@ export class Calendar {
     this.editedTaskDueDate = task.dueDate;
     this.editedTaskProgress = task.progress;
     this.editedTaskStatus = task.status;
+    this.editedTaskIsMilestone = task.isMilestone;
     this.editedTaskColor = /^#[0-9a-f]{6}$/i.test(task.color ?? '')
       ? task.color
       : this.selectedProject()?.color ?? '#D87535';
@@ -1028,12 +1083,12 @@ export class Calendar {
   canSaveTaskEdit(): boolean {
     const task = this.tasks().find((item) => item.id === this.editingTaskId());
     if (!task) return false;
-    const dueDate = task.isMilestone
+    const dueDate = this.editedTaskIsMilestone
       ? this.editedTaskStartDate
       : this.editedTaskDueDate;
     const datesChanged =
       this.editedTaskStartDate !== task.startDate ||
-      (!task.isMilestone && dueDate !== task.dueDate);
+      dueDate !== task.dueDate;
     const startShift = this.dayDifference(
       task.startDate,
       this.editedTaskStartDate,
@@ -1054,6 +1109,7 @@ export class Calendar {
         (!bounds.minimumDue || dueDate >= bounds.minimumDue) &&
         (!bounds.maximumDue || dueDate <= bounds.maximumDue));
     return (
+      (!this.editedTaskIsMilestone || this.canConvertToMilestone(task)) &&
       Boolean(this.editedTaskName.trim()) &&
       this.editedTaskName.trim().length <= 120 &&
       this.editedTaskAssignee.trim().length <= 120 &&
@@ -1066,18 +1122,35 @@ export class Calendar {
     );
   }
 
+  canConvertToMilestone(task: Task): boolean {
+    return (
+      task.isMilestone ||
+      (!task.parentTaskId &&
+        !this.tasks().some((item) => item.parentTaskId === task.id))
+    );
+  }
+
+  taskColorForDisplay(task: Task): string {
+    if (this.editingTaskId() === task.id) {
+      return this.editedTaskColor;
+    }
+    return /^#[0-9a-f]{6}$/i.test(task.color ?? '')
+      ? task.color
+      : this.selectedProject()?.color ?? '#D87535';
+  }
+
   saveTaskEdit(): void {
     const taskId = this.editingTaskId();
     const task = this.tasks().find((item) => item.id === taskId);
     if (!taskId || !task || !this.canSaveTaskEdit()) {
       return;
     }
-    const dueDate = task.isMilestone
+    const dueDate = this.editedTaskIsMilestone
       ? this.editedTaskStartDate
       : this.editedTaskDueDate;
     const datesChanged =
       this.editedTaskStartDate !== task.startDate ||
-      (!task.isMilestone && dueDate !== task.dueDate);
+      dueDate !== task.dueDate;
     const update: TaskUpdate = {
       name: this.editedTaskName.trim(),
       assignee: this.editedTaskAssignee.trim(),
@@ -1085,6 +1158,9 @@ export class Calendar {
       status: this.editedTaskStatus,
       color: this.editedTaskColor,
     };
+    if (this.editedTaskIsMilestone !== task.isMilestone) {
+      update.isMilestone = this.editedTaskIsMilestone;
+    }
     if (datesChanged) {
       update.startDate = this.editedTaskStartDate;
       update.dueDate = dueDate;
@@ -1095,7 +1171,12 @@ export class Calendar {
       .subscribe({
         next: (updated) => {
           this.tasks.update((tasks) =>
-            this.tasksAfterTaskUpdate(tasks, task, updated),
+            this.tasksAfterTaskUpdate(
+              tasks,
+              task,
+              updated,
+              update.status === 'complete',
+            ),
           );
           this.updateTimeline(this.displayedTasks());
           this.editingTaskId.set(null);
@@ -1549,6 +1630,7 @@ export class Calendar {
     tasks: Task[],
     previousTask: Task,
     updatedTask: Task,
+    markSubtasksComplete = false,
   ): Task[] {
     const startShift = this.dayDifference(
       previousTask.startDate,
@@ -1562,16 +1644,32 @@ export class Calendar {
       !previousTask.parentTaskId &&
       startShift !== 0 &&
       startShift === dueShift;
+    const updateSubtaskColors =
+      !previousTask.parentTaskId &&
+      previousTask.color !== updatedTask.color;
+    const completeSubtasks =
+      !previousTask.parentTaskId && markSubtasksComplete;
 
     return tasks.map((item) => {
       if (item.id === updatedTask.id) {
         return updatedTask;
       }
-      if (shiftSubtasks && item.parentTaskId === updatedTask.id) {
+      if (
+        item.parentTaskId === updatedTask.id &&
+        (shiftSubtasks || updateSubtaskColors || completeSubtasks)
+      ) {
         return {
           ...item,
-          startDate: this.shiftDate(item.startDate, startShift),
-          dueDate: this.shiftDate(item.dueDate, startShift),
+          ...(shiftSubtasks
+            ? {
+                startDate: this.shiftDate(item.startDate, startShift),
+                dueDate: this.shiftDate(item.dueDate, startShift),
+              }
+            : {}),
+          ...(updateSubtaskColors ? { color: updatedTask.color } : {}),
+          ...(completeSubtasks
+            ? { status: 'complete' as const, progress: 100 }
+            : {}),
         };
       }
       return item;
